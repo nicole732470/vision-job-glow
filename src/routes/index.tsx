@@ -52,28 +52,76 @@ interface Track {
   priority: number;
   example_titles: string[];
 }
+interface AvoidTrack {
+  id: string;
+  label: string;
+  example_titles: string[];
+}
 interface Profile {
   tracks: Track[];
-  avoid_tracks: string[];
-  locations: { summary: string; tier_1: string[]; tier_2: string[]; tier_3: string[] };
-  trajectory: string;
+  avoid_tracks: AvoidTrack[];
+  locations: {
+    summary: string;
+    tier_1: string[];
+    tier_2: string[];
+    tier_3: string[];
+    remote_ok?: boolean;
+    relocation_ok?: boolean;
+  };
+  trajectory: string[];
   dealbreakers: string[];
-  preferences: string;
+  preferences: string[];
   technical_penalties: string[];
   alumni_schools: string[];
-  needs_sponsorship: boolean;
+  constraints: { needs_sponsorship: boolean };
 }
 const EMPTY_PROFILE: Profile = {
   tracks: [],
   avoid_tracks: [],
   locations: { summary: "", tier_1: [], tier_2: [], tier_3: [] },
-  trajectory: "",
+  trajectory: [],
   dealbreakers: [],
-  preferences: "",
+  preferences: [],
   technical_penalties: [],
   alumni_schools: [],
-  needs_sponsorship: false,
+  constraints: { needs_sponsorship: true },
 };
+
+function normalizeProfile(raw: Record<string, unknown> | null | undefined): Profile {
+  const p = raw || {};
+  const loc = (p.locations as Profile["locations"]) || {};
+  const constraints = (p.constraints as Profile["constraints"]) || {};
+  let avoid = p.avoid_tracks;
+  if (Array.isArray(avoid) && avoid.length && typeof avoid[0] === "string") {
+    avoid = (avoid as string[]).map((label, i) => ({
+      id: `avoid_${i}`,
+      label,
+      example_titles: [],
+    }));
+  }
+  return {
+    ...EMPTY_PROFILE,
+    ...p,
+    avoid_tracks: (avoid as AvoidTrack[]) || [],
+    locations: { ...EMPTY_PROFILE.locations, ...loc },
+    trajectory: Array.isArray(p.trajectory)
+      ? (p.trajectory as string[])
+      : p.trajectory
+        ? [String(p.trajectory)]
+        : [],
+    preferences: Array.isArray(p.preferences)
+      ? (p.preferences as string[])
+      : p.preferences
+        ? [String(p.preferences)]
+        : [],
+    constraints: {
+      needs_sponsorship:
+        constraints.needs_sponsorship ??
+        (p as { needs_sponsorship?: boolean }).needs_sponsorship ??
+        true,
+    },
+  };
+}
 
 interface Report {
   recommendation?: { decision?: string; reasoning?: string; fit_ratio?: number };
@@ -156,8 +204,7 @@ function JobLensApp() {
     (async () => {
       try {
         const p = await apiJson("/me/profile", { headers: headers(token) });
-        const merged: Profile = { ...EMPTY_PROFILE, ...p, locations: { ...EMPTY_PROFILE.locations, ...(p?.locations || {}) } };
-        setProfile(merged);
+        setProfile(normalizeProfile(p));
       } catch {
         setProfile({ ...EMPTY_PROFILE });
       }
@@ -273,7 +320,7 @@ function JobLensApp() {
     // login: check profile
     try {
       const prof = await apiJson("/me/profile", { headers: headers(data.token) });
-      const merged: Profile = { ...EMPTY_PROFILE, ...prof, locations: { ...EMPTY_PROFILE.locations, ...(prof?.locations || {}) } };
+      const merged = normalizeProfile(prof);
       setProfile(merged);
       setView(isProfileFilled(merged) ? "analyze" : "onboarding");
     } catch {
@@ -289,8 +336,7 @@ function JobLensApp() {
       headers: headers(token),
       body: JSON.stringify(p),
     });
-    const merged: Profile = { ...EMPTY_PROFILE, ...saved, locations: { ...EMPTY_PROFILE.locations, ...(saved?.locations || {}) } };
-    setProfile(merged);
+    setProfile(normalizeProfile(saved));
   }
 
   // ---------- Render ----------
@@ -794,17 +840,21 @@ function ProfileEditor({
   skipLabel?: string;
 }) {
   const [tracks, setTracks] = useState<Track[]>(initial.tracks ?? []);
-  const [avoid, setAvoid] = useState(arrToLines(initial.avoid_tracks));
+  const [avoid, setAvoid] = useState(
+    arrToLines((initial.avoid_tracks || []).map((t) => t.label))
+  );
   const [locSummary, setLocSummary] = useState(initial.locations?.summary ?? "");
   const [tier1, setTier1] = useState(arrToLines(initial.locations?.tier_1));
   const [tier2, setTier2] = useState(arrToLines(initial.locations?.tier_2));
   const [tier3, setTier3] = useState(arrToLines(initial.locations?.tier_3));
-  const [trajectory, setTrajectory] = useState(initial.trajectory ?? "");
+  const [trajectory, setTrajectory] = useState(arrToLines(initial.trajectory));
   const [dealbreakers, setDealbreakers] = useState(arrToLines(initial.dealbreakers));
-  const [prefs, setPrefs] = useState(initial.preferences ?? "");
+  const [prefs, setPrefs] = useState(arrToLines(initial.preferences));
   const [penalties, setPenalties] = useState(arrToLines(initial.technical_penalties));
   const [schools, setSchools] = useState(arrToLines(initial.alumni_schools));
-  const [needsSponsor, setNeedsSponsor] = useState(Boolean(initial.needs_sponsorship));
+  const [needsSponsor, setNeedsSponsor] = useState(
+    Boolean(initial.constraints?.needs_sponsorship)
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -833,20 +883,27 @@ function ProfileEditor({
             label: t.label.trim(),
             id: t.id || t.label.trim().toLowerCase().replace(/\s+/g, "_"),
             priority: Math.max(1, Math.min(5, Number(t.priority) || 3)),
+            example_titles: t.example_titles || [],
           })),
-        avoid_tracks: linesToArr(avoid),
+        avoid_tracks: linesToArr(avoid).map((label, i) => ({
+          id: `avoid_${i}_${label.toLowerCase().replace(/\s+/g, "_").slice(0, 24)}`,
+          label,
+          example_titles: [],
+        })),
         locations: {
           summary: locSummary.trim(),
           tier_1: linesToArr(tier1),
           tier_2: linesToArr(tier2),
           tier_3: linesToArr(tier3),
+          remote_ok: true,
+          relocation_ok: true,
         },
-        trajectory: trajectory.trim(),
+        trajectory: linesToArr(trajectory),
         dealbreakers: linesToArr(dealbreakers),
-        preferences: prefs.trim(),
+        preferences: linesToArr(prefs),
         technical_penalties: linesToArr(penalties),
         alumni_schools: linesToArr(schools),
-        needs_sponsorship: needsSponsor,
+        constraints: { needs_sponsorship: needsSponsor },
       };
       await onSave(p);
     } catch (e) {
@@ -931,16 +988,16 @@ function ProfileEditor({
         </div>
       </Section>
 
-      <Section title="Career trajectory" hint="A sentence or two on where you're going.">
-        <textarea rows={3} className="ninput" value={trajectory} onChange={(e) => setTrajectory(e.target.value)} placeholder="e.g. moving from data engineering into applied AI / LLM systems" />
+      <Section title="Career trajectory" hint="One line per item — projects in progress, direction, etc.">
+        <textarea rows={3} className="ninput font-mono text-[13px]" value={trajectory} onChange={(e) => setTrajectory(e.target.value)} placeholder={"Building LLM agents\nMoving into applied AI roles"} />
       </Section>
 
       <Section title="Dealbreakers" hint="Hard nos, one per line.">
         <textarea rows={3} className="ninput font-mono text-[13px]" value={dealbreakers} onChange={(e) => setDealbreakers(e.target.value)} placeholder={"no sponsorship\nstrictly onsite Bay Area"} />
       </Section>
 
-      <Section title="Preferences" hint="Free-form. Company size, culture, comp expectations, etc.">
-        <textarea rows={3} className="ninput" value={prefs} onChange={(e) => setPrefs(e.target.value)} />
+      <Section title="Preferences" hint="Nice-to-haves — one per line.">
+        <textarea rows={3} className="ninput font-mono text-[13px]" value={prefs} onChange={(e) => setPrefs(e.target.value)} />
       </Section>
 
       <Section title="Technical penalties" hint="Stacks/tools that count against a posting (one per line).">
