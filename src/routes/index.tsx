@@ -4,14 +4,17 @@ import { useEffect, useState, type ReactNode } from "react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "JobLens — See a company before you apply." },
+      { title: "JobLens — Check if a job fits you" },
       {
         name: "description",
         content:
-          "Paste a job link and get an evidence-based Apply / Near / Consider / Skip verdict.",
+          "Paste a job link. JobLens checks H-1B history, role fit, and resume match — then explains why it fits or doesn't.",
       },
       { property: "og:title", content: "JobLens" },
-      { property: "og:description", content: "See a company before you apply." },
+      {
+        property: "og:description",
+        content: "Know how a job matches you — sponsorship, role, resume — before you apply.",
+      },
     ],
   }),
   component: JobLensApp,
@@ -45,7 +48,7 @@ function safeJson(t: string) {
 function friendlyFetchError(e: unknown): string {
   const msg = String((e as Error)?.message || e);
   if (msg === "Failed to fetch" || /NetworkError|Load failed/i.test(msg)) {
-    return "Could not reach the JobLens API. Try pasting the job description manually below.";
+    return "Could not reach the JobLens API. If you have the job text, use the manual form below.";
   }
   return msg;
 }
@@ -191,8 +194,10 @@ function JobLensApp() {
 
   // analyze state
   const [jobUrl, setJobUrl] = useState("");
-  const [jdText, setJdText] = useState("");
-  const [showPaste, setShowPaste] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [manualCompany, setManualCompany] = useState("");
+  const [manualTitle, setManualTitle] = useState("");
+  const [manualJd, setManualJd] = useState("");
   const [company, setCompany] = useState("");
   const [title, setTitle] = useState("");
   const [report, setReport] = useState<Report | null>(null);
@@ -247,62 +252,88 @@ function JobLensApp() {
   const ok = (msg = "") => setStatus(msg ? { msg, err: false } : null);
   const err = (msg: string) => setStatus({ msg, err: true });
 
-  async function runAnalyze() {
-    if (!jobUrl.trim() && jdText.trim().length < 80) {
-      err("Paste a job URL or at least 80 characters of the JD.");
+  async function runUrlAnalyze() {
+    if (!jobUrl.trim()) {
+      err("Paste a job URL to start.");
+      return;
+    }
+    setLoading(true);
+    setReport(null);
+    ok("");
+    let parsed = false;
+    try {
+      ok("Fetching job page…");
+      const data = await apiJson("/jobs/parse-url", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ url: jobUrl.trim() }),
+      });
+      if (!data.ok) {
+        setShowManual(true);
+        if (data.company) setManualCompany(data.company);
+        if (data.title) setManualTitle(data.title);
+        if (data.jd_text) setManualJd(data.jd_text);
+        throw new Error(
+          data.reason ||
+            "We couldn't read this page — fill in the job details below, or use the JobLens Chrome extension on LinkedIn."
+        );
+      }
+      const _jd = data.jd_text || "";
+      const _company = data.company || "";
+      const _title = data.title || "";
+      setCompany(_company);
+      setTitle(_title);
+      if (_jd.trim().length < 80) {
+        setShowManual(true);
+        if (_company) setManualCompany(_company);
+        if (_title) setManualTitle(_title);
+        throw new Error("Page loaded but the job description was too short — paste the full posting below.");
+      }
+      parsed = true;
+      await runAnalyzeCore(_jd, _company, _title);
+    } catch (e) {
+      if (!parsed) setShowManual(true);
+      err(friendlyFetchError(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runManualAnalyze() {
+    if (manualJd.trim().length < 80) {
+      err("Paste at least 80 characters in the job description.");
       return;
     }
     setLoading(true);
     setReport(null);
     ok("");
     try {
-      let _jd = jdText;
-      let _company = company;
-      let _title = title;
-
-      if (jobUrl.trim() && _jd.trim().length < 80) {
-        ok("Fetching job page…");
-        const data = await apiJson("/jobs/parse-url", {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({ url: jobUrl.trim() }),
-        });
-        if (!data.ok) {
-          setShowPaste(true);
-          throw new Error(
-            data.reason ||
-              "Could not read this job page — paste the full description below, or use the JobLens Chrome extension on LinkedIn."
-          );
-        }
-        _jd = data.jd_text || "";
-        _company = data.company || "";
-        _title = data.title || "";
-        setJdText(_jd);
-        setCompany(_company);
-        setTitle(_title);
-      }
-
-      ok("Analyzing… (20–90s on free LLM)");
-      const t0 = performance.now();
-      const body = {
-        jd_text: _jd,
-        company: _company || null,
-        title: _title || null,
-        job_url: jobUrl || null,
-      };
-      const r = await apiJson("/analyze", {
-        method: "POST",
-        headers: headers(token),
-        body: JSON.stringify(body),
-      });
-      setReport(r);
-      ok(`Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+      setCompany(manualCompany);
+      setTitle(manualTitle);
+      await runAnalyzeCore(manualJd, manualCompany, manualTitle);
     } catch (e) {
-      if (jobUrl.trim() && jdText.trim().length < 80) setShowPaste(true);
       err(friendlyFetchError(e));
     } finally {
       setLoading(false);
     }
+  }
+
+  async function runAnalyzeCore(_jd: string, _company: string, _title: string) {
+    ok("Analyzing… (20–90s on free LLM)");
+    const t0 = performance.now();
+    const body = {
+      jd_text: _jd,
+      company: _company || null,
+      title: _title || null,
+      job_url: jobUrl || null,
+    };
+    const r = await apiJson("/analyze", {
+      method: "POST",
+      headers: headers(token),
+      body: JSON.stringify(body),
+    });
+    setReport(r);
+    ok(`Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
   }
 
   async function uploadResume(file: File) {
@@ -371,7 +402,7 @@ function JobLensApp() {
       style={{
         fontFamily: SANS,
         background:
-          "radial-gradient(1200px 600px at 20% -10%, #fef3e0 0%, transparent 60%), radial-gradient(900px 500px at 100% 10%, #f0eaff 0%, transparent 55%), linear-gradient(180deg, #fbf9f5 0%, #f7f5f0 100%)",
+          "radial-gradient(1100px 580px at 12% -8%, rgba(99,102,241,0.14) 0%, transparent 58%), radial-gradient(920px 520px at 88% 4%, rgba(139,92,246,0.16) 0%, transparent 52%), radial-gradient(680px 380px at 50% 105%, rgba(245,208,96,0.07) 0%, transparent 48%), linear-gradient(180deg, #f8f9fc 0%, #f1f2f7 100%)",
       }}
     >
       <Header
@@ -384,17 +415,21 @@ function JobLensApp() {
         onLogout={logout}
       />
 
-      <main className="mx-auto w-full max-w-3xl px-5 pb-24 pt-10 sm:pt-16">
+      <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-10 sm:pt-14">
         {view === "analyze" && (
           <AnalyzeView
             jobUrl={jobUrl}
             setJobUrl={setJobUrl}
-            jdText={jdText}
-            setJdText={setJdText}
-            showPaste={showPaste}
-            setShowPaste={setShowPaste}
+            showManual={showManual}
+            manualCompany={manualCompany}
+            setManualCompany={setManualCompany}
+            manualTitle={manualTitle}
+            setManualTitle={setManualTitle}
+            manualJd={manualJd}
+            setManualJd={setManualJd}
             loading={loading}
-            onAnalyze={runAnalyze}
+            onUrlAnalyze={runUrlAnalyze}
+            onManualAnalyze={runManualAnalyze}
             status={status}
             report={report}
             company={company}
@@ -477,10 +512,11 @@ function JobLensApp() {
         .nbtn:active { transform: translateY(1px); }
         .nbtn:disabled { opacity: .55; cursor: not-allowed; }
         .nbtn-primary {
-          background: #37352f; color: #fff; border-color: #37352f;
-          box-shadow: 0 1px 2px rgba(15,15,15,.12);
+          background: linear-gradient(135deg, #4f46e5 0%, #6366f1 55%, #7c3aed 100%);
+          color: #fff; border-color: #4f46e5;
+          box-shadow: 0 1px 2px rgba(79,70,229,.25), 0 6px 16px -6px rgba(99,102,241,.45);
         }
-        .nbtn-primary:hover { background: #2f2d28; }
+        .nbtn-primary:hover { background: linear-gradient(135deg, #4338ca 0%, #4f46e5 55%, #6d28d9 100%); }
         .nbtn-ghost { background: transparent; border-color: transparent; color: #6f6c66; }
         .nbtn-ghost:hover { background: rgba(55,53,47,.06); }
         .card {
@@ -499,8 +535,19 @@ function JobLensApp() {
           transition: box-shadow 200ms, border-color 200ms;
         }
         .heroBar:focus-within {
-          border-color: #cfc9bd;
-          box-shadow: 0 1px 2px rgba(15,15,15,.06), 0 22px 50px -18px rgba(15,15,15,.22);
+          border-color: #c7d2fe;
+          box-shadow: 0 1px 2px rgba(79,70,229,.06), 0 22px 50px -18px rgba(99,102,241,.22);
+        }
+        .pill {
+          display: inline-flex; align-items: center; gap: 6px;
+          border-radius: 999px; padding: 4px 10px; font-size: 12px;
+          background: rgba(99,102,241,0.08); color: #4338ca; border: 1px solid rgba(99,102,241,0.15);
+        }
+        .featureCard {
+          background: rgba(255,255,255,0.72);
+          border: 1px solid rgba(226,232,240,0.9);
+          border-radius: 14px;
+          backdrop-filter: blur(8px);
         }
       `}</style>
     </div>
@@ -553,12 +600,16 @@ function Header({
 function AnalyzeView(props: {
   jobUrl: string;
   setJobUrl: (s: string) => void;
-  jdText: string;
-  setJdText: (s: string) => void;
-  showPaste: boolean;
-  setShowPaste: (b: boolean) => void;
+  showManual: boolean;
+  manualCompany: string;
+  setManualCompany: (s: string) => void;
+  manualTitle: string;
+  setManualTitle: (s: string) => void;
+  manualJd: string;
+  setManualJd: (s: string) => void;
   loading: boolean;
-  onAnalyze: () => void;
+  onUrlAnalyze: () => void;
+  onManualAnalyze: () => void;
   status: { msg: string; err: boolean } | null;
   report: Report | null;
   company: string;
@@ -570,77 +621,176 @@ function AnalyzeView(props: {
   resumeBusy: boolean;
 }) {
   const {
-    jobUrl, setJobUrl, jdText, setJdText, showPaste, setShowPaste,
-    loading, onAnalyze, status, report, company, title,
+    jobUrl, setJobUrl, showManual,
+    manualCompany, setManualCompany, manualTitle, setManualTitle, manualJd, setManualJd,
+    loading, onUrlAnalyze, onManualAnalyze, status, report, company, title,
     isLoggedIn, resumeFile, setResumeFile, resumeUploaded, resumeBusy,
   } = props;
 
   return (
-    <div className="space-y-10">
-      <section className="fadein space-y-6 text-center">
-        <div>
-          <h1 className="text-[34px] font-bold leading-tight tracking-tight text-[#37352f] sm:text-[44px]">
-            See a company before you apply.
+    <div className="space-y-12">
+      <section className="fadein space-y-7 text-center">
+        <div className="space-y-3">
+          <p className="pill mx-auto w-fit">Role fit · H-1B · resume match</p>
+          <h1 className="text-[32px] font-bold leading-[1.15] tracking-tight text-[#1e1b4b] sm:text-[42px]">
+            Does this job{" "}
+            <span className="bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-500 bg-clip-text text-transparent">
+              fit you
+            </span>
+            ?
           </h1>
-          <p className="mx-auto mt-3 max-w-xl text-[15px] text-[#6f6c66]">
-            Paste a job link. JobLens reads the posting, checks H-1B history, and tells you whether to apply.
+          <p className="mx-auto max-w-2xl text-[15px] leading-relaxed text-[#64748b]">
+            Paste a job link. JobLens reads the posting, checks visa sponsorship history,
+            and scores how the role matches your profile — then explains{" "}
+            <em className="not-italic text-[#475569]">why</em> it fits or doesn&apos;t.
           </p>
         </div>
 
         <form
-          onSubmit={(e) => { e.preventDefault(); onAnalyze(); }}
-          className="heroBar mx-auto flex w-full items-center gap-2 px-2 py-2 sm:gap-3"
+          onSubmit={(e) => { e.preventDefault(); onUrlAnalyze(); }}
+          className="heroBar mx-auto flex w-full max-w-2xl items-center gap-2 px-2 py-2 sm:gap-3"
         >
           <input
             type="url"
             value={jobUrl}
             onChange={(e) => setJobUrl(e.target.value)}
-            placeholder="Paste a job URL — Greenhouse, Lever, Ashby…"
-            className="flex-1 bg-transparent px-3 py-2 text-[15px] text-[#37352f] outline-none placeholder:text-[#9b9a97]"
+            placeholder="Paste a job URL — LinkedIn, Indeed, Handshake, company careers…"
+            className="flex-1 bg-transparent px-3 py-2 text-[15px] text-[#1e293b] outline-none placeholder:text-[#94a3b8]"
           />
           <button
             type="submit"
             disabled={loading}
             className="nbtn nbtn-primary !px-4 !py-2"
           >
-            {loading ? "Working…" : "Analyze"}
+            {loading && !showManual ? "Working…" : "Check match"}
           </button>
         </form>
 
-        <div className="text-sm">
-          <button
-            type="button"
-            onClick={() => setShowPaste(!showPaste)}
-            className="text-[#787774] underline-offset-4 hover:underline"
-          >
-            {showPaste ? "Hide JD paste box" : "LinkedIn / blocked site? Paste the job description instead"}
-          </button>
-        </div>
+        <p className="text-xs text-[#94a3b8]">
+          Works best on public job pages · LinkedIn often blocks the web — use our Chrome extension there
+        </p>
 
-        {showPaste && (
-          <textarea
-            value={jdText}
-            onChange={(e) => setJdText(e.target.value)}
-            rows={8}
-            placeholder="Paste the full job description…"
-            className="ninput fadein mx-auto block max-w-2xl text-left font-mono text-[13px]"
-          />
-        )}
-
-        {status && (
-          <p className={"text-sm " + (status.err ? "text-[#8a1f1c]" : "text-[#787774]")}>
+        {status && !showManual && (
+          <p className={"text-sm " + (status.err ? "text-[#b91c1c]" : "text-[#64748b]")}>
             {status.msg}
           </p>
         )}
       </section>
 
+      {showManual && (
+        <section className="card fadein mx-auto max-w-2xl space-y-4 p-6">
+          <div className="space-y-1 text-left">
+            <h2 className="text-[17px] font-semibold text-[#1e1b4b]">Paste the job manually</h2>
+            <p className="text-sm text-[#64748b]">
+              This site couldn&apos;t read the page automatically. Copy the posting from LinkedIn,
+              Handshake, or the company site — then run the check from here.
+            </p>
+          </div>
+
+          <label className="block text-left">
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
+              Company
+            </span>
+            <input
+              className="ninput"
+              placeholder="e.g. Stripe, Google, a startup name…"
+              value={manualCompany}
+              onChange={(e) => setManualCompany(e.target.value)}
+            />
+          </label>
+
+          <label className="block text-left">
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
+              Job title
+            </span>
+            <input
+              className="ninput"
+              placeholder="e.g. Software Engineer Intern, ML Engineer…"
+              value={manualTitle}
+              onChange={(e) => setManualTitle(e.target.value)}
+            />
+          </label>
+
+          <label className="block text-left">
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
+              Job description
+            </span>
+            <textarea
+              value={manualJd}
+              onChange={(e) => setManualJd(e.target.value)}
+              rows={10}
+              placeholder="Paste the full job description — responsibilities, requirements, location…"
+              className="ninput font-mono text-[13px]"
+            />
+          </label>
+
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <button
+              type="button"
+              disabled={loading}
+              onClick={onManualAnalyze}
+              className="nbtn nbtn-primary"
+            >
+              {loading ? "Analyzing…" : "Check match"}
+            </button>
+            <span className="text-xs text-[#94a3b8]">At least 80 characters in the description</span>
+          </div>
+
+          {status && (
+            <p className={"text-left text-sm " + (status.err ? "text-[#b91c1c]" : "text-[#64748b]")}>
+              {status.msg}
+            </p>
+          )}
+        </section>
+      )}
+
+      {!report && (
+        <section className="fadein space-y-8">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <FeatureCard
+              icon="🛂"
+              title="Visa sponsorship"
+              body="Cross-checks the employer against DOL H-1B filing history — critical if you need sponsorship."
+            />
+            <FeatureCard
+              icon="🎯"
+              title="Role fit"
+              body="Matches the title and responsibilities to your target tracks — not just keyword overlap."
+            />
+            <FeatureCard
+              icon="📄"
+              title="Resume match"
+              body="Upload a PDF once; each role gets strong / partial / gap signals against your experience."
+            />
+          </div>
+
+          <div className="featureCard mx-auto max-w-2xl p-6 text-left">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-[#6366f1]">How it works</h2>
+            <ol className="mt-4 space-y-3 text-[14px] text-[#475569]">
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">1</span>
+                <span><strong className="text-[#1e293b]">Paste a job link</strong> from LinkedIn, Indeed, Handshake, or a company careers page.</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-700">2</span>
+                <span><strong className="text-[#1e293b]">JobLens analyzes</strong> the posting — sponsorship data, role track, location, and your profile.</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-800">3</span>
+                <span><strong className="text-[#1e293b]">Get a verdict</strong> (Apply / Near / Consider / Skip) with plain reasons — not a yes/no on whether you &quot;should&quot; apply.</span>
+              </li>
+            </ol>
+          </div>
+        </section>
+      )}
+
       {isLoggedIn && (
         <section className="card fadein mx-auto max-w-2xl p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold text-[#37352f]">Resume (optional)</h3>
-              <p className="text-xs text-[#787774]">
-                {resumeUploaded ? "Saved. Will be used for personalized fit." : "PDF only. Used to score your fit per role."}
+              <h3 className="text-sm font-semibold text-[#1e293b]">Resume (optional)</h3>
+              <p className="text-xs text-[#64748b]">
+                {resumeUploaded ? "Saved. Will be used for personalized fit." : "PDF only. Improves match scoring per role."}
               </p>
             </div>
             <label className="nbtn cursor-pointer">
@@ -654,7 +804,7 @@ function AnalyzeView(props: {
             </label>
           </div>
           {resumeFile && (
-            <p className="mt-2 text-xs text-[#787774]">{resumeFile.name}</p>
+            <p className="mt-2 text-xs text-[#64748b]">{resumeFile.name}</p>
           )}
         </section>
       )}
@@ -672,14 +822,14 @@ function AnalyzeView(props: {
                 {report.recommendation?.decision || "—"}
               </span>
               {(company || title) && (
-                <span className="text-sm text-[#787774]">
+                <span className="text-sm text-[#64748b]">
                   {company || "—"} · {title || "—"}
                 </span>
               )}
               {typeof report.recommendation?.fit_ratio === "number" && (
-                <span className="text-sm text-[#787774]">
-                  Fit{" "}
-                  <strong className="text-[#37352f]">
+                <span className="text-sm text-[#64748b]">
+                  Match{" "}
+                  <strong className="text-[#1e293b]">
                     {Math.round(
                       (report.recommendation.fit_ratio <= 1
                         ? report.recommendation.fit_ratio * 100
@@ -691,7 +841,7 @@ function AnalyzeView(props: {
               )}
             </div>
             {report.recommendation?.reasoning && (
-              <p className="mt-4 whitespace-pre-wrap text-[15px] leading-relaxed text-[#37352f]">
+              <p className="mt-4 whitespace-pre-wrap text-[15px] leading-relaxed text-[#334155]">
                 {report.recommendation.reasoning}
               </p>
             )}
@@ -707,7 +857,7 @@ function AnalyzeView(props: {
                     {report.sponsorship.total_lca_count ?? 0} LCAs
                   </p>
                 ) : (
-                  <p className="text-[#6f6c66]">{report.sponsorship.reason || "No match."}</p>
+                  <p className="text-[#64748b]">{report.sponsorship.reason || "No match."}</p>
                 )}
               </ResultCard>
             )}
@@ -726,20 +876,30 @@ function AnalyzeView(props: {
                   <p className="mb-1"><strong>{report.company.company_label}</strong></p>
                 )}
                 {report.company.summary && (
-                  <p className="text-[#6f6c66]">{report.company.summary}</p>
+                  <p className="text-[#64748b]">{report.company.summary}</p>
                 )}
               </ResultCard>
             )}
           </div>
 
-          <details className="text-sm text-[#787774]">
+          <details className="text-sm text-[#64748b]">
             <summary className="cursor-pointer">Raw JSON</summary>
-            <pre className="mt-2 max-h-96 overflow-auto rounded-lg bg-[#fbfaf6] p-3 text-xs text-[#37352f] ring-1 ring-[#ece9e1]">
+            <pre className="mt-2 max-h-96 overflow-auto rounded-lg bg-[#f8fafc] p-3 text-xs text-[#334155] ring-1 ring-[#e2e8f0]">
               {JSON.stringify(report, null, 2)}
             </pre>
           </details>
         </section>
       )}
+    </div>
+  );
+}
+
+function FeatureCard({ icon, title, body }: { icon: string; title: string; body: string }) {
+  return (
+    <div className="featureCard p-5 text-left">
+      <div className="text-2xl">{icon}</div>
+      <h3 className="mt-2 text-[15px] font-semibold text-[#1e293b]">{title}</h3>
+      <p className="mt-1 text-[13px] leading-relaxed text-[#64748b]">{body}</p>
     </div>
   );
 }
