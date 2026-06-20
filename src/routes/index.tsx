@@ -16,6 +16,7 @@ export const Route = createFileRoute("/")({
         content: "Know how a job matches you — sponsorship, role, resume — before you apply.",
       },
     ],
+    links: [{ rel: "stylesheet", href: "/joblens-tokens.css" }],
   }),
   component: JobLensApp,
 });
@@ -45,10 +46,39 @@ function safeJson(t: string) {
     return {};
   }
 }
+function isLinkedInJobUrl(url: string): boolean {
+  try {
+    const h = new URL(url.trim()).hostname.replace(/^www\./, "");
+    return h === "linkedin.com";
+  } catch {
+    return /linkedin\.com/i.test(url);
+  }
+}
+
+function parseApiError(text: string, status: number): string {
+  const trimmed = text.trim();
+  if (
+    status === 504 ||
+    trimmed.startsWith("<!DOCTYPE") ||
+    trimmed.startsWith("<html") ||
+    /Gateway time-out/i.test(trimmed)
+  ) {
+    return (
+      "The web server timed out (504). Analysis can take 60–90s — on LinkedIn, use the JobLens Chrome extension. " +
+      "Or paste the job in the manual form below and try again."
+    );
+  }
+  if (trimmed.length > 280) return `Request failed (HTTP ${status}). Please try again.`;
+  return trimmed;
+}
+
 function friendlyFetchError(e: unknown): string {
   const msg = String((e as Error)?.message || e);
-  if (msg === "Failed to fetch" || /NetworkError|Load failed/i.test(msg)) {
-    return "Could not reach the JobLens API. If you have the job text, use the manual form below.";
+  if (msg === "Failed to fetch" || /NetworkError|Load failed|AbortError/i.test(msg)) {
+    return "Could not reach JobLens. Paste the job in the manual form below, or use the Chrome extension on LinkedIn.";
+  }
+  if (/504|Gateway time-out|timed out/i.test(msg)) {
+    return parseApiError(msg, 504);
   }
   return msg;
 }
@@ -61,9 +91,15 @@ async function apiJson(path: string, init: RequestInit) {
     throw new Error(friendlyFetchError(e));
   }
   const text = await res.text();
-  const data = text ? (safeJson(text) as any) : {};
-  if (!res.ok) throw new Error(data?.detail || text || `HTTP ${res.status}`);
-  return data;
+  if (!res.ok) {
+    const data = text && !text.trimStart().startsWith("<") ? safeJson(text) : {};
+    throw new Error((data as { detail?: string })?.detail || parseApiError(text, res.status));
+  }
+  if (!text) return {};
+  if (text.trimStart().startsWith("<")) {
+    throw new Error(parseApiError(text, res.status));
+  }
+  return safeJson(text) as Record<string, unknown>;
 }
 
 // ---------- Types ----------
@@ -165,11 +201,11 @@ type View = "analyze" | "onboarding" | "profile";
 
 function verdictStyle(d?: string): string {
   const x = (d || "").toLowerCase();
-  if (x === "apply") return "bg-[#d8f1de] text-[#1c5b2e] ring-1 ring-[#bfe3c9]";
-  if (x.includes("near")) return "bg-[#dbeafe] text-[#1e3a8a] ring-1 ring-[#c7daf6]";
-  if (x === "consider") return "bg-[#fff1c2] text-[#7a5b00] ring-1 ring-[#f3e2a0]";
-  if (x === "skip") return "bg-[#fde1df] text-[#8a1f1c] ring-1 ring-[#f3c8c5]";
-  return "bg-[#ececea] text-[#37352f]";
+  if (x === "apply") return "verdict-apply";
+  if (x.includes("near")) return "verdict-near";
+  if (x === "consider") return "verdict-consider";
+  if (x === "skip") return "verdict-skip";
+  return "verdict-neutral";
 }
 
 // ---------- Helpers ----------
@@ -257,17 +293,24 @@ function JobLensApp() {
       err("Paste a job URL to start.");
       return;
     }
+    if (isLinkedInJobUrl(jobUrl)) {
+      setShowManual(true);
+      err(
+        "LinkedIn blocks most web scrapers. Copy the job into the form below, or install the JobLens Chrome extension on LinkedIn for one-click analysis."
+      );
+      return;
+    }
     setLoading(true);
     setReport(null);
     ok("");
     let parsed = false;
     try {
       ok("Fetching job page…");
-      const data = await apiJson("/jobs/parse-url", {
+      const data = (await apiJson("/jobs/parse-url", {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({ url: jobUrl.trim() }),
-      });
+      })) as { ok?: boolean; reason?: string; jd_text?: string; company?: string; title?: string };
       if (!data.ok) {
         setShowManual(true);
         if (data.company) setManualCompany(data.company);
@@ -275,7 +318,7 @@ function JobLensApp() {
         if (data.jd_text) setManualJd(data.jd_text);
         throw new Error(
           data.reason ||
-            "We couldn't read this page — fill in the job details below, or use the JobLens Chrome extension on LinkedIn."
+            "We couldn't read this page — fill in the job details below."
         );
       }
       const _jd = data.jd_text || "";
@@ -398,11 +441,15 @@ function JobLensApp() {
   // ---------- Render ----------
   return (
     <div
-      className="min-h-screen text-[#37352f]"
+      className="jn-page min-h-screen"
       style={{
-        fontFamily: SANS,
+        fontFamily: "var(--jn-font)",
+        color: "var(--jn-text)",
         background:
-          "radial-gradient(1100px 580px at 12% -8%, rgba(99,102,241,0.14) 0%, transparent 58%), radial-gradient(920px 520px at 88% 4%, rgba(139,92,246,0.16) 0%, transparent 52%), radial-gradient(680px 380px at 50% 105%, rgba(245,208,96,0.07) 0%, transparent 48%), linear-gradient(180deg, #f8f9fc 0%, #f1f2f7 100%)",
+          "radial-gradient(1000px 520px at 10% -6%, var(--jn-bg-gradient-sky) 0%, transparent 55%), " +
+          "radial-gradient(880px 480px at 92% 2%, var(--jn-bg-gradient-peach) 0%, transparent 50%), " +
+          "radial-gradient(640px 360px at 50% 100%, var(--jn-bg-gradient-mint) 0%, transparent 48%), " +
+          "linear-gradient(180deg, var(--jn-bg-page) 0%, var(--jn-bg-warm) 100%)",
       }}
     >
       <Header
@@ -489,65 +536,81 @@ function JobLensApp() {
       <style>{`
         .ninput {
           width: 100%;
-          border: 1px solid #e6e3dc;
-          background: #ffffff;
-          border-radius: 8px;
+          border: 1px solid var(--jn-border-input);
+          background: var(--jn-bg);
+          border-radius: var(--jn-radius);
           padding: 9px 12px;
           font-size: 14px;
-          color: #37352f;
+          color: var(--jn-text);
           outline: none;
           transition: box-shadow 120ms, border-color 120ms, background 120ms;
         }
         .ninput:focus {
-          border-color: #2383e2;
-          box-shadow: 0 0 0 3px rgba(35,131,226,0.18);
+          border-color: var(--jn-accent);
+          box-shadow: 0 0 0 3px var(--jn-accent-soft);
         }
         .nbtn {
           display: inline-flex; align-items: center; justify-content: center;
-          border: 1px solid #e6e3dc; background: #ffffff; color: #37352f;
-          border-radius: 8px; padding: 7px 14px; font-size: 14px; line-height: 1.2;
+          border: 1px solid var(--jn-border-input); background: var(--jn-bg); color: var(--jn-text);
+          border-radius: var(--jn-radius); padding: 7px 14px; font-size: 14px; line-height: 1.2;
           cursor: pointer; transition: background 120ms, transform 120ms, box-shadow 120ms;
         }
-        .nbtn:hover { background: #f5f3ee; }
+        .nbtn:hover { background: var(--jn-bg-subtle); }
         .nbtn:active { transform: translateY(1px); }
         .nbtn:disabled { opacity: .55; cursor: not-allowed; }
         .nbtn-primary {
-          background: linear-gradient(135deg, #4f46e5 0%, #6366f1 55%, #7c3aed 100%);
-          color: #fff; border-color: #4f46e5;
-          box-shadow: 0 1px 2px rgba(79,70,229,.25), 0 6px 16px -6px rgba(99,102,241,.45);
+          background: var(--jn-cta); color: #fff; border-color: var(--jn-cta);
+          box-shadow: 0 1px 2px rgba(28,25,23,.12);
         }
-        .nbtn-primary:hover { background: linear-gradient(135deg, #4338ca 0%, #4f46e5 55%, #6d28d9 100%); }
-        .nbtn-ghost { background: transparent; border-color: transparent; color: #6f6c66; }
-        .nbtn-ghost:hover { background: rgba(55,53,47,.06); }
+        .nbtn-primary:hover { background: var(--jn-cta-hover); }
+        .nbtn-ghost { background: transparent; border-color: transparent; color: var(--jn-text-muted); }
+        .nbtn-ghost:hover { background: rgba(28,25,23,.05); }
         .card {
-          background: #ffffff;
-          border: 1px solid #ece9e1;
-          border-radius: 14px;
-          box-shadow: 0 1px 2px rgba(15,15,15,.04), 0 8px 24px -12px rgba(15,15,15,.08);
+          background: var(--jn-bg);
+          border: 1px solid var(--jn-border);
+          border-radius: var(--jn-radius-lg);
+          box-shadow: var(--jn-shadow);
         }
         .fadein { animation: fadein .35s ease both; }
         @keyframes fadein { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: none; } }
         .heroBar {
-          background: #ffffff;
-          border: 1px solid #ece9e1;
-          border-radius: 16px;
-          box-shadow: 0 1px 2px rgba(15,15,15,.04), 0 18px 40px -20px rgba(15,15,15,.18);
+          background: var(--jn-bg);
+          border: 1px solid var(--jn-border);
+          border-radius: var(--jn-radius-xl);
+          box-shadow: var(--jn-shadow-hero);
           transition: box-shadow 200ms, border-color 200ms;
         }
         .heroBar:focus-within {
-          border-color: #c7d2fe;
-          box-shadow: 0 1px 2px rgba(79,70,229,.06), 0 22px 50px -18px rgba(99,102,241,.22);
+          border-color: var(--jn-accent);
+          box-shadow: var(--jn-shadow-hero), 0 0 0 3px var(--jn-accent-soft);
         }
         .pill {
           display: inline-flex; align-items: center; gap: 6px;
           border-radius: 999px; padding: 4px 10px; font-size: 12px;
-          background: rgba(99,102,241,0.08); color: #4338ca; border: 1px solid rgba(99,102,241,0.15);
+          background: var(--jn-accent-soft); color: var(--jn-accent-hover);
+          border: 1px solid rgba(13,148,136,0.2);
         }
         .featureCard {
-          background: rgba(255,255,255,0.72);
-          border: 1px solid rgba(226,232,240,0.9);
-          border-radius: 14px;
-          backdrop-filter: blur(8px);
+          background: rgba(255,255,255,0.85);
+          border: 1px solid var(--jn-border);
+          border-radius: var(--jn-radius-lg);
+        }
+        .jn-brand { color: var(--jn-brand); font-weight: 650; letter-spacing: -0.03em; }
+        .jn-highlight { color: var(--jn-highlight); }
+        .jn-muted { color: var(--jn-text-muted); }
+        .jn-step {
+          display: flex; height: 1.5rem; width: 1.5rem; flex-shrink: 0; align-items: center;
+          justify-content: center; border-radius: 999px; font-size: 12px; font-weight: 600;
+          background: var(--jn-accent-soft); color: var(--jn-accent-hover);
+        }
+        .verdict-apply { background: var(--jn-verdict-apply-bg); color: var(--jn-verdict-apply-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-apply-ring); }
+        .verdict-near { background: var(--jn-verdict-near-bg); color: var(--jn-verdict-near-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-near-ring); }
+        .verdict-consider { background: var(--jn-verdict-consider-bg); color: var(--jn-verdict-consider-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-consider-ring); }
+        .verdict-skip { background: var(--jn-verdict-skip-bg); color: var(--jn-verdict-skip-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-skip-ring); }
+        .verdict-neutral { background: var(--jn-bg-subtle); color: var(--jn-text); }
+        .verdict-apply, .verdict-near, .verdict-consider, .verdict-skip, .verdict-neutral {
+          display: inline-flex; align-items: center; border-radius: 999px; padding: 0.25rem 0.875rem;
+          font-size: 0.875rem; font-weight: 600;
         }
       `}</style>
     </div>
@@ -574,21 +637,21 @@ function Header({
 }) {
   return (
     <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 pt-5">
-      <button onClick={onLogo} className="text-[17px] font-semibold tracking-tight text-[#37352f]">
+      <button onClick={onLogo} className="jn-brand text-[17px]">
         JobLens
       </button>
       <div className="flex items-center gap-1.5 text-sm">
         {isLoggedIn ? (
           <>
             <button className="nbtn nbtn-ghost" onClick={onProfile}>Profile</button>
-            <span className="hidden text-[#9b9a97] sm:inline">·</span>
-            <span className="hidden text-[#787774] sm:inline">{email}</span>
+            <span className="jn-muted hidden sm:inline">·</span>
+            <span className="jn-muted hidden sm:inline">{email}</span>
             <button className="nbtn nbtn-ghost" onClick={onLogout}>Sign out</button>
           </>
         ) : (
           <>
             <button className="nbtn nbtn-ghost" onClick={onSignIn}>Sign in</button>
-            <button className="nbtn nbtn-primary" onClick={onSignUp}>Create account</button>
+            <button className="nbtn nbtn-primary" onClick={onSignUp}>Sign up</button>
           </>
         )}
       </div>
@@ -632,17 +695,14 @@ function AnalyzeView(props: {
       <section className="fadein space-y-7 text-center">
         <div className="space-y-3">
           <p className="pill mx-auto w-fit">Role fit · H-1B · resume match</p>
-          <h1 className="text-[32px] font-bold leading-[1.15] tracking-tight text-[#1e1b4b] sm:text-[42px]">
+          <h1 className="text-[32px] font-bold leading-[1.15] tracking-tight sm:text-[42px]" style={{ color: "var(--jn-text)" }}>
             Does this job{" "}
-            <span className="bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-500 bg-clip-text text-transparent">
-              fit you
-            </span>
-            ?
+            <span className="jn-highlight">fit you</span>?
           </h1>
-          <p className="mx-auto max-w-2xl text-[15px] leading-relaxed text-[#64748b]">
+          <p className="jn-muted mx-auto max-w-2xl text-[15px] leading-relaxed">
             Paste a job link. JobLens reads the posting, checks visa sponsorship history,
             and scores how the role matches your profile — then explains{" "}
-            <em className="not-italic text-[#475569]">why</em> it fits or doesn&apos;t.
+            <em className="not-italic" style={{ color: "var(--jn-text-secondary)" }}>why</em> it fits or doesn&apos;t.
           </p>
         </div>
 
@@ -655,7 +715,8 @@ function AnalyzeView(props: {
             value={jobUrl}
             onChange={(e) => setJobUrl(e.target.value)}
             placeholder="Paste a job URL — LinkedIn, Indeed, Handshake, company careers…"
-            className="flex-1 bg-transparent px-3 py-2 text-[15px] text-[#1e293b] outline-none placeholder:text-[#94a3b8]"
+            className="flex-1 bg-transparent px-3 py-2 text-[15px] outline-none placeholder:text-[var(--jn-text-faint)]"
+            style={{ color: "var(--jn-text)" }}
           />
           <button
             type="submit"
@@ -666,12 +727,12 @@ function AnalyzeView(props: {
           </button>
         </form>
 
-        <p className="text-xs text-[#94a3b8]">
-          Works best on public job pages · LinkedIn often blocks the web — use our Chrome extension there
+        <p className="text-xs" style={{ color: "var(--jn-text-faint)" }}>
+          Indeed & Handshake work well here · LinkedIn → use Chrome extension or paste manually below
         </p>
 
         {status && !showManual && (
-          <p className={"text-sm " + (status.err ? "text-[#b91c1c]" : "text-[#64748b]")}>
+          <p className={"text-sm " + (status.err ? "text-[#b91c1c]" : "jn-muted")}>
             {status.msg}
           </p>
         )}
@@ -680,8 +741,8 @@ function AnalyzeView(props: {
       {showManual && (
         <section className="card fadein mx-auto max-w-2xl space-y-4 p-6">
           <div className="space-y-1 text-left">
-            <h2 className="text-[17px] font-semibold text-[#1e1b4b]">Paste the job manually</h2>
-            <p className="text-sm text-[#64748b]">
+            <h2 className="text-[17px] font-semibold" style={{ color: "var(--jn-text)" }}>Paste the job manually</h2>
+            <p className="jn-muted text-sm">
               This site couldn&apos;t read the page automatically. Copy the posting from LinkedIn,
               Handshake, or the company site — then run the check from here.
             </p>
@@ -765,19 +826,19 @@ function AnalyzeView(props: {
           </div>
 
           <div className="featureCard mx-auto max-w-2xl p-6 text-left">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-[#6366f1]">How it works</h2>
-            <ol className="mt-4 space-y-3 text-[14px] text-[#475569]">
+            <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--jn-accent)" }}>How it works</h2>
+            <ol className="jn-muted mt-4 space-y-3 text-[14px]">
               <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">1</span>
-                <span><strong className="text-[#1e293b]">Paste a job link</strong> from LinkedIn, Indeed, Handshake, or a company careers page.</span>
+                <span className="jn-step">1</span>
+                <span><strong style={{ color: "var(--jn-text)" }}>Paste a job link</strong> from Indeed, Handshake, or a company careers page.</span>
               </li>
               <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-700">2</span>
-                <span><strong className="text-[#1e293b]">JobLens analyzes</strong> the posting — sponsorship data, role track, location, and your profile.</span>
+                <span className="jn-step">2</span>
+                <span><strong style={{ color: "var(--jn-text)" }}>JobLens analyzes</strong> the posting — sponsorship, role track, location, and your profile.</span>
               </li>
               <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-800">3</span>
-                <span><strong className="text-[#1e293b]">Get a verdict</strong> (Apply / Near / Consider / Skip) with plain reasons — not a yes/no on whether you &quot;should&quot; apply.</span>
+                <span className="jn-step">3</span>
+                <span><strong style={{ color: "var(--jn-text)" }}>Get a verdict</strong> (Apply / Near / Consider / Skip) with plain reasons.</span>
               </li>
             </ol>
           </div>
@@ -986,7 +1047,7 @@ function AuthModal({
           </label>
           {err && <p className="text-sm text-[#8a1f1c]">{err}</p>}
           <button type="submit" disabled={busy} className="nbtn nbtn-primary w-full">
-            {busy ? "…" : mode === "register" ? "Create account" : "Sign in"}
+            {busy ? "…" : mode === "register" ? "Sign up" : "Sign in"}
           </button>
         </form>
         <div className="mt-4 flex items-center justify-between text-sm">
@@ -995,7 +1056,7 @@ function AuthModal({
             className="text-[#787774] hover:text-[#37352f]"
             onClick={() => onSwitch(mode === "register" ? "login" : "register")}
           >
-            {mode === "register" ? "Have an account? Sign in" : "New here? Create account"}
+            {mode === "register" ? "Have an account? Sign in" : "New here? Sign up"}
           </button>
           <button type="button" className="text-[#9b9a97] hover:text-[#37352f]" onClick={onClose}>
             Close

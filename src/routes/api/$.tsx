@@ -6,6 +6,12 @@ const BACKEND = (
   "http://3.128.164.130:8000"
 ).replace(/\/$/, "");
 
+const TIMEOUT_MS: Record<string, number> = {
+  analyze: 120_000,
+  "jobs/parse-url": 45_000,
+};
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 async function proxyHandler({
   request,
   params,
@@ -31,7 +37,27 @@ async function proxyHandler({
     init.duplex = "half";
   }
 
-  return fetch(target, init);
+  const timeoutMs = TIMEOUT_MS[splat] ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(target, { ...init, signal: controller.signal });
+  } catch (e) {
+    const aborted = (e as Error)?.name === "AbortError";
+    return new Response(
+      JSON.stringify({
+        detail: aborted
+          ? "Upstream request timed out. Try the Chrome extension or paste the job manually."
+          : String((e as Error)?.message || e),
+      }),
+      {
+        status: aborted ? 504 : 502,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const Route = createFileRoute("/api/$")({
