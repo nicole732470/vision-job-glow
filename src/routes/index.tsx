@@ -51,6 +51,8 @@ const TOKEN_KEY = "joblens_token";
 const EMAIL_KEY = "joblens_email";
 const SANS =
   '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif';
+/** Same floor as backend /analyze — paste and scrape are not validated differently. */
+const MIN_JD_CHARS = 40;
 
 // ---------- API ----------
 function headers(token?: string | null): Record<string, string> {
@@ -347,6 +349,22 @@ function JobLensApp() {
         job_location?: string;
       };
       if (!data.ok) {
+        // URL fetch failed or blocked — use any text we got, same as user paste.
+        if ((data.jd_text || "").trim().length >= MIN_JD_CHARS) {
+          const norm = globalThis.JobLensReportView?.parseLinkedInStyleTitle;
+          const fromTitle =
+            typeof norm === "function"
+              ? norm(data.title || "", data.company || "", data.job_location || null)
+              : null;
+          urlParsed = true;
+          await runAnalyzeCore(
+            data.jd_text || "",
+            fromTitle?.company || data.company || "",
+            fromTitle?.title || data.title || "",
+            fromTitle?.jobLocation || data.job_location || null,
+          );
+          return;
+        }
         setShowManual(true);
         const norm = globalThis.JobLensReportView?.parseLinkedInStyleTitle;
         const fromTitle =
@@ -358,7 +376,7 @@ function JobLensApp() {
         if (fromTitle?.title || data.title) setManualTitle(fromTitle?.title || data.title || "");
         if (fromTitle?.jobLocation || data.job_location) setManualLocation(fromTitle?.jobLocation || data.job_location || "");
         if (data.jd_text) setManualJd(data.jd_text);
-        throw new Error(data.reason || "Couldn't read this page — paste the job below.");
+        throw new Error(data.reason || "Couldn't read this page — paste what you see below.");
       }
       const _jd = data.jd_text || "";
       const norm = globalThis.JobLensReportView?.parseLinkedInStyleTitle;
@@ -369,12 +387,13 @@ function JobLensApp() {
       const _company = fields.company || data.company || "";
       const _title = fields.title || data.title || "";
       const _location = fields.jobLocation || data.job_location || null;
-      if (_jd.trim().length < 80) {
+      if (_jd.trim().length < MIN_JD_CHARS) {
         setShowManual(true);
         if (_company) setManualCompany(_company);
         if (_title) setManualTitle(_title);
         if (_location) setManualLocation(_location);
-        throw new Error("Job text too short — paste the full description below.");
+        if (_jd) setManualJd(_jd);
+        throw new Error("Not enough text yet — paste what you see on the job page below.");
       }
       urlParsed = true;
       await runAnalyzeCore(_jd, _company, _title, _location);
@@ -387,8 +406,8 @@ function JobLensApp() {
   }
 
   async function runManualAnalyze() {
-    if (manualJd.trim().length < 80) {
-      err("Paste at least 80 characters in the job description.");
+    if (manualJd.trim().length < MIN_JD_CHARS) {
+      err(`Paste at least ${MIN_JD_CHARS} characters from the job page.`);
       return;
     }
     setLoading(true);
@@ -871,26 +890,26 @@ function AnalyzeView(props: {
 
       {showManual && (
         <div className="tool-panel">
-          <div className="tool-panel-hd">Manual input</div>
+          <div className="tool-panel-hd">Paste job text</div>
           <div className="tool-panel-bd space-y-3">
             <p className="text-xs" style={{ color: "var(--jn-text-muted)" }}>
-              Page couldn&apos;t be fetched — paste company, title, and full JD below.
+              Paste whatever you see on the job page — no special format. Company and title are optional.
             </p>
-            <input className="ninput" placeholder="Company" value={manualCompany} onChange={(e) => setManualCompany(e.target.value)} />
-            <input className="ninput" placeholder="Job title" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} />
-            <input
-              className="ninput"
-              placeholder="Location (e.g. Chicago, IL — under title on LinkedIn)"
-              value={manualLocation}
-              onChange={(e) => setManualLocation(e.target.value)}
-            />
             <textarea
               value={manualJd}
               onChange={(e) => setManualJd(e.target.value)}
-              rows={8}
-              placeholder="Job description (80+ characters)"
+              rows={10}
+              placeholder="Copy everything from the posting (description, requirements, company blurb…)"
               className="ninput"
               style={{ fontFamily: "var(--jn-font-mono)", fontSize: 12 }}
+            />
+            <input className="ninput" placeholder="Company (optional)" value={manualCompany} onChange={(e) => setManualCompany(e.target.value)} />
+            <input className="ninput" placeholder="Job title (optional)" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} />
+            <input
+              className="ninput"
+              placeholder="Location (optional)"
+              value={manualLocation}
+              onChange={(e) => setManualLocation(e.target.value)}
             />
             <button type="button" disabled={loading} onClick={onManualAnalyze} className="nbtn nbtn-primary">
               {loading ? "Running…" : "Run analysis"}
