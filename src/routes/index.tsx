@@ -91,6 +91,7 @@ function friendlyFetchError(e: unknown): string {
 }
 
 import { buildAnalyzeBody, runAnalyzeAsync } from "../lib/analyze-client.js";
+import "../lib/report-view-core.js";
 
 async function apiJson(path: string, init: RequestInit) {
   let res: Response;
@@ -332,34 +333,55 @@ function JobLensApp() {
     setReport(null);
     setAnalyzeSteps([]);
     ok("");
-    let parsed = false;
+    let urlParsed = false;
     try {
       ok("Fetching job page…");
       const data = (await apiJson("/jobs/parse-url", {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({ url: jobUrl.trim() }),
-      })) as { ok?: boolean; reason?: string; jd_text?: string; company?: string; title?: string };
+      })) as {
+        ok?: boolean;
+        reason?: string;
+        jd_text?: string;
+        company?: string;
+        title?: string;
+        job_location?: string;
+      };
       if (!data.ok) {
         setShowManual(true);
-        if (data.company) setManualCompany(data.company);
-        if (data.title) setManualTitle(data.title);
+        const norm = globalThis.JobLensReportView?.parseLinkedInStyleTitle;
+        const fromTitle =
+          typeof norm === "function"
+            ? norm(data.title || "", data.company || "", data.job_location || null)
+            : null;
+        if (fromTitle?.company) setManualCompany(fromTitle.company);
+        else if (data.company) setManualCompany(data.company);
+        if (fromTitle?.title || data.title) setManualTitle(fromTitle?.title || data.title || "");
+        if (fromTitle?.jobLocation || data.job_location) setManualLocation(fromTitle?.jobLocation || data.job_location || "");
         if (data.jd_text) setManualJd(data.jd_text);
         throw new Error(data.reason || "Couldn't read this page — paste the job below.");
       }
       const _jd = data.jd_text || "";
-      const _company = data.company || "";
-      const _title = data.title || "";
+      const norm = globalThis.JobLensReportView?.parseLinkedInStyleTitle;
+      const fields =
+        typeof norm === "function"
+          ? norm(data.title || "", data.company || "", data.job_location || null)
+          : { company: data.company || "", title: data.title || "", jobLocation: data.job_location || null };
+      const _company = fields.company || data.company || "";
+      const _title = fields.title || data.title || "";
+      const _location = fields.jobLocation || data.job_location || null;
       if (_jd.trim().length < 80) {
         setShowManual(true);
         if (_company) setManualCompany(_company);
         if (_title) setManualTitle(_title);
+        if (_location) setManualLocation(_location);
         throw new Error("Job text too short — paste the full description below.");
       }
-      parsed = true;
-      await runAnalyzeCore(_jd, _company, _title);
+      urlParsed = true;
+      await runAnalyzeCore(_jd, _company, _title, _location);
     } catch (e) {
-      if (!parsed) setShowManual(true);
+      if (!urlParsed) setShowManual(true);
       err(friendlyFetchError(e));
     } finally {
       setLoading(false);
@@ -391,12 +413,17 @@ function JobLensApp() {
     _jobLocation: string | null = null,
   ) {
     ok("Starting analysis…");
+    const normalize = globalThis.JobLensReportView?.parseLinkedInStyleTitle;
+    const parsed =
+      typeof normalize === "function"
+        ? normalize(_title, _company, _jobLocation)
+        : { company: _company, title: _title, jobLocation: _jobLocation };
     const body = buildAnalyzeBody({
       jd_text: _jd,
-      company: _company,
-      title: _title,
+      company: parsed.company || _company,
+      title: parsed.title || _title,
       job_url: jobUrl || null,
-      job_location: _jobLocation,
+      job_location: parsed.jobLocation || _jobLocation,
     });
 
     const t0 = performance.now();
