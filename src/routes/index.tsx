@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
+import { JOB_TOKENS_CSS, STEP_LABELS } from "../lib/job-tokens";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -16,7 +17,7 @@ export const Route = createFileRoute("/")({
         content: "Know how a job matches you — sponsorship, role, resume — before you apply.",
       },
     ],
-    links: [{ rel: "stylesheet", href: "/joblens-tokens.css" }],
+    links: [],
   }),
   component: JobLensApp,
 });
@@ -46,15 +47,6 @@ function safeJson(t: string) {
     return {};
   }
 }
-function isLinkedInJobUrl(url: string): boolean {
-  try {
-    const h = new URL(url.trim()).hostname.replace(/^www\./, "");
-    return h === "linkedin.com";
-  } catch {
-    return /linkedin\.com/i.test(url);
-  }
-}
-
 function parseApiError(text: string, status: number): string {
   const trimmed = text.trim();
   if (
@@ -63,10 +55,7 @@ function parseApiError(text: string, status: number): string {
     trimmed.startsWith("<html") ||
     /Gateway time-out/i.test(trimmed)
   ) {
-    return (
-      "The web server timed out (504). Analysis can take 60–90s — on LinkedIn, use the JobLens Chrome extension. " +
-      "Or paste the job in the manual form below and try again."
-    );
+    return "Server timed out — analysis is still running on our side. Wait a moment and try the manual form again.";
   }
   if (trimmed.length > 280) return `Request failed (HTTP ${status}). Please try again.`;
   return trimmed;
@@ -75,12 +64,16 @@ function parseApiError(text: string, status: number): string {
 function friendlyFetchError(e: unknown): string {
   const msg = String((e as Error)?.message || e);
   if (msg === "Failed to fetch" || /NetworkError|Load failed|AbortError/i.test(msg)) {
-    return "Could not reach JobLens. Paste the job in the manual form below, or use the Chrome extension on LinkedIn.";
+    return "Could not reach JobLens. Paste the job in the manual form below.";
   }
   if (/504|Gateway time-out|timed out/i.test(msg)) {
     return parseApiError(msg, 504);
   }
   return msg;
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 async function apiJson(path: string, init: RequestInit) {
@@ -237,6 +230,7 @@ function JobLensApp() {
   const [company, setCompany] = useState("");
   const [title, setTitle] = useState("");
   const [report, setReport] = useState<Report | null>(null);
+  const [analyzeSteps, setAnalyzeSteps] = useState<Array<{ step: string; duration_ms?: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ msg: string; err: boolean } | null>(null);
 
@@ -293,15 +287,9 @@ function JobLensApp() {
       err("Paste a job URL to start.");
       return;
     }
-    if (isLinkedInJobUrl(jobUrl)) {
-      setShowManual(true);
-      err(
-        "LinkedIn blocks most web scrapers. Copy the job into the form below, or install the JobLens Chrome extension on LinkedIn for one-click analysis."
-      );
-      return;
-    }
     setLoading(true);
     setReport(null);
+    setAnalyzeSteps([]);
     ok("");
     let parsed = false;
     try {
@@ -316,10 +304,7 @@ function JobLensApp() {
         if (data.company) setManualCompany(data.company);
         if (data.title) setManualTitle(data.title);
         if (data.jd_text) setManualJd(data.jd_text);
-        throw new Error(
-          data.reason ||
-            "We couldn't read this page — fill in the job details below."
-        );
+        throw new Error(data.reason || "Couldn't read this page — paste the job below.");
       }
       const _jd = data.jd_text || "";
       const _company = data.company || "";
@@ -330,7 +315,7 @@ function JobLensApp() {
         setShowManual(true);
         if (_company) setManualCompany(_company);
         if (_title) setManualTitle(_title);
-        throw new Error("Page loaded but the job description was too short — paste the full posting below.");
+        throw new Error("Job text too short — paste the full description below.");
       }
       parsed = true;
       await runAnalyzeCore(_jd, _company, _title);
@@ -349,6 +334,7 @@ function JobLensApp() {
     }
     setLoading(true);
     setReport(null);
+    setAnalyzeSteps([]);
     ok("");
     try {
       setCompany(manualCompany);
@@ -362,21 +348,45 @@ function JobLensApp() {
   }
 
   async function runAnalyzeCore(_jd: string, _company: string, _title: string) {
-    ok("Analyzing… (20–90s on free LLM)");
-    const t0 = performance.now();
+    ok("Starting analysis…");
     const body = {
       jd_text: _jd,
       company: _company || null,
       title: _title || null,
       job_url: jobUrl || null,
     };
-    const r = await apiJson("/analyze", {
+    const started = (await apiJson("/analyze/async", {
       method: "POST",
       headers: headers(token),
       body: JSON.stringify(body),
-    });
-    setReport(r);
-    ok(`Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+    })) as { job_id?: string; status?: string };
+
+    const jobId = started.job_id;
+    if (!jobId) throw new Error("Failed to start analysis");
+
+    const t0 = performance.now();
+    for (let i = 0; i < 120; i++) {
+      await sleep(1500);
+      const job = (await apiJson(`/analyze/jobs/${jobId}`, { headers: headers(token) })) as {
+        status?: string;
+        steps?: Array<{ step: string; duration_ms?: number }>;
+        report?: Report;
+        error?: string;
+        message?: string;
+      };
+      if (job.steps?.length) setAnalyzeSteps(job.steps);
+      if (job.message) ok(job.message);
+
+      if (job.status === "done" && job.report) {
+        setReport(job.report);
+        ok(`Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+        return;
+      }
+      if (job.status === "error") {
+        throw new Error(job.error || "Analysis failed");
+      }
+    }
+    throw new Error("Analysis is taking longer than expected — check back or retry.");
   }
 
   async function uploadResume(file: File) {
@@ -440,18 +450,7 @@ function JobLensApp() {
 
   // ---------- Render ----------
   return (
-    <div
-      className="jn-page min-h-screen"
-      style={{
-        fontFamily: "var(--jn-font)",
-        color: "var(--jn-text)",
-        background:
-          "radial-gradient(1000px 520px at 10% -6%, var(--jn-bg-gradient-sky) 0%, transparent 55%), " +
-          "radial-gradient(880px 480px at 92% 2%, var(--jn-bg-gradient-peach) 0%, transparent 50%), " +
-          "radial-gradient(640px 360px at 50% 100%, var(--jn-bg-gradient-mint) 0%, transparent 48%), " +
-          "linear-gradient(180deg, var(--jn-bg-page) 0%, var(--jn-bg-warm) 100%)",
-      }}
-    >
+    <div className="jn-page min-h-screen" style={{ fontFamily: "var(--jn-font)", color: "var(--jn-text)", background: "var(--jn-bg-page)" }}>
       <Header
         email={email}
         isLoggedIn={isLoggedIn}
@@ -462,7 +461,7 @@ function JobLensApp() {
         onLogout={logout}
       />
 
-      <main className="mx-auto w-full max-w-4xl px-5 pb-24 pt-10 sm:pt-14">
+      <main className="tool-shell px-5 pb-20 pt-6">
         {view === "analyze" && (
           <AnalyzeView
             jobUrl={jobUrl}
@@ -474,6 +473,7 @@ function JobLensApp() {
             setManualTitle={setManualTitle}
             manualJd={manualJd}
             setManualJd={setManualJd}
+            analyzeSteps={analyzeSteps}
             loading={loading}
             onUrlAnalyze={runUrlAnalyze}
             onManualAnalyze={runManualAnalyze}
@@ -533,76 +533,58 @@ function JobLensApp() {
         />
       )}
 
-      <style>{`
+      <style>{JOB_TOKENS_CSS + `
+        .tool-shell { max-width: 720px; margin: 0 auto; }
+        .tool-panel {
+          background: var(--jn-bg-panel);
+          border: 1px solid var(--jn-border);
+          border-radius: var(--jn-radius-lg);
+        }
+        .tool-panel-hd {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 10px 14px; border-bottom: 1px solid var(--jn-border);
+          background: var(--jn-bg-tool); font-size: 13px; font-weight: 600;
+        }
+        .tool-panel-bd { padding: 14px; }
+        .tool-row { display: flex; gap: 8px; align-items: stretch; }
+        .tool-status {
+          margin-top: 10px; padding: 8px 10px; border-radius: var(--jn-radius);
+          background: var(--jn-bg-subtle); border: 1px solid var(--jn-border);
+          font-family: var(--jn-font-mono); font-size: 12px; color: var(--jn-text-muted);
+        }
+        .step-list { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+        .step-line {
+          display: flex; align-items: center; gap: 8px; font-size: 12px;
+          font-family: var(--jn-font-mono); color: var(--jn-text-secondary);
+        }
+        .step-dot {
+          width: 7px; height: 7px; border-radius: 50%; background: var(--jn-accent); flex-shrink: 0;
+        }
+        .step-dot.pending { background: var(--jn-border-input); }
         .ninput {
           width: 100%;
           border: 1px solid var(--jn-border-input);
           background: var(--jn-bg);
           border-radius: var(--jn-radius);
-          padding: 9px 12px;
+          padding: 8px 10px;
           font-size: 14px;
           color: var(--jn-text);
           outline: none;
-          transition: box-shadow 120ms, border-color 120ms, background 120ms;
         }
-        .ninput:focus {
-          border-color: var(--jn-accent);
-          box-shadow: 0 0 0 3px var(--jn-accent-soft);
-        }
+        .ninput:focus { border-color: var(--jn-accent); box-shadow: 0 0 0 2px var(--jn-accent-soft); }
         .nbtn {
           display: inline-flex; align-items: center; justify-content: center;
           border: 1px solid var(--jn-border-input); background: var(--jn-bg); color: var(--jn-text);
-          border-radius: var(--jn-radius); padding: 7px 14px; font-size: 14px; line-height: 1.2;
-          cursor: pointer; transition: background 120ms, transform 120ms, box-shadow 120ms;
+          border-radius: var(--jn-radius); padding: 7px 14px; font-size: 13px; cursor: pointer;
         }
         .nbtn:hover { background: var(--jn-bg-subtle); }
-        .nbtn:active { transform: translateY(1px); }
-        .nbtn:disabled { opacity: .55; cursor: not-allowed; }
-        .nbtn-primary {
-          background: var(--jn-cta); color: #fff; border-color: var(--jn-cta);
-          box-shadow: 0 1px 2px rgba(28,25,23,.12);
-        }
+        .nbtn:disabled { opacity: .5; cursor: not-allowed; }
+        .nbtn-primary { background: var(--jn-cta); color: #fff; border-color: var(--jn-cta); }
         .nbtn-primary:hover { background: var(--jn-cta-hover); }
         .nbtn-ghost { background: transparent; border-color: transparent; color: var(--jn-text-muted); }
-        .nbtn-ghost:hover { background: rgba(28,25,23,.05); }
-        .card {
-          background: var(--jn-bg);
-          border: 1px solid var(--jn-border);
-          border-radius: var(--jn-radius-lg);
-          box-shadow: var(--jn-shadow);
-        }
-        .fadein { animation: fadein .35s ease both; }
-        @keyframes fadein { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: none; } }
-        .heroBar {
-          background: var(--jn-bg);
-          border: 1px solid var(--jn-border);
-          border-radius: var(--jn-radius-xl);
-          box-shadow: var(--jn-shadow-hero);
-          transition: box-shadow 200ms, border-color 200ms;
-        }
-        .heroBar:focus-within {
-          border-color: var(--jn-accent);
-          box-shadow: var(--jn-shadow-hero), 0 0 0 3px var(--jn-accent-soft);
-        }
-        .pill {
-          display: inline-flex; align-items: center; gap: 6px;
-          border-radius: 999px; padding: 4px 10px; font-size: 12px;
-          background: var(--jn-accent-soft); color: var(--jn-accent-hover);
-          border: 1px solid rgba(13,148,136,0.2);
-        }
-        .featureCard {
-          background: rgba(255,255,255,0.85);
-          border: 1px solid var(--jn-border);
-          border-radius: var(--jn-radius-lg);
-        }
+        .nbtn-ghost:hover { background: var(--jn-bg-subtle); }
+        .card { background: var(--jn-bg-panel); border: 1px solid var(--jn-border); border-radius: var(--jn-radius-lg); }
         .jn-brand { color: var(--jn-brand); font-weight: 650; letter-spacing: -0.03em; }
-        .jn-highlight { color: var(--jn-highlight); }
-        .jn-muted { color: var(--jn-text-muted); }
-        .jn-step {
-          display: flex; height: 1.5rem; width: 1.5rem; flex-shrink: 0; align-items: center;
-          justify-content: center; border-radius: 999px; font-size: 12px; font-weight: 600;
-          background: var(--jn-accent-soft); color: var(--jn-accent-hover);
-        }
         .verdict-apply { background: var(--jn-verdict-apply-bg); color: var(--jn-verdict-apply-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-apply-ring); }
         .verdict-near { background: var(--jn-verdict-near-bg); color: var(--jn-verdict-near-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-near-ring); }
         .verdict-consider { background: var(--jn-verdict-consider-bg); color: var(--jn-verdict-consider-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-consider-ring); }
@@ -636,7 +618,7 @@ function Header({
   onLogout: () => void;
 }) {
   return (
-    <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 pt-5">
+    <header className="tool-shell flex items-center justify-between px-5 pt-4 pb-2">
       <button onClick={onLogo} className="jn-brand text-[17px]">
         JobLens
       </button>
@@ -644,8 +626,8 @@ function Header({
         {isLoggedIn ? (
           <>
             <button className="nbtn nbtn-ghost" onClick={onProfile}>Profile</button>
-            <span className="jn-muted hidden sm:inline">·</span>
-            <span className="jn-muted hidden sm:inline">{email}</span>
+            <span className="hidden sm:inline" style={{ color: "var(--jn-text-muted)" }}>·</span>
+            <span className="hidden sm:inline" style={{ color: "var(--jn-text-muted)" }}>{email}</span>
             <button className="nbtn nbtn-ghost" onClick={onLogout}>Sign out</button>
           </>
         ) : (
@@ -670,6 +652,7 @@ function AnalyzeView(props: {
   setManualTitle: (s: string) => void;
   manualJd: string;
   setManualJd: (s: string) => void;
+  analyzeSteps: Array<{ step: string; duration_ms?: number }>;
   loading: boolean;
   onUrlAnalyze: () => void;
   onManualAnalyze: () => void;
@@ -686,231 +669,149 @@ function AnalyzeView(props: {
   const {
     jobUrl, setJobUrl, showManual,
     manualCompany, setManualCompany, manualTitle, setManualTitle, manualJd, setManualJd,
-    loading, onUrlAnalyze, onManualAnalyze, status, report, company, title,
+    analyzeSteps, loading, onUrlAnalyze, onManualAnalyze, status, report, company, title,
     isLoggedIn, resumeFile, setResumeFile, resumeUploaded, resumeBusy,
   } = props;
 
+  const pipeline = [
+    "prepare",
+    "sponsorship_lookup",
+    "parse_jd",
+    "join_prefetch",
+    "react_agent",
+    "fill_gaps",
+    "langgraph_invoke",
+  ];
+  const doneSteps = new Set(analyzeSteps.map((s) => s.step));
+
   return (
-    <div className="space-y-12">
-      <section className="fadein space-y-7 text-center">
-        <div className="space-y-3">
-          <p className="pill mx-auto w-fit">Role fit · H-1B · resume match</p>
-          <h1 className="text-[32px] font-bold leading-[1.15] tracking-tight sm:text-[42px]" style={{ color: "var(--jn-text)" }}>
-            Does this job{" "}
-            <span className="jn-highlight">fit you</span>?
-          </h1>
-          <p className="jn-muted mx-auto max-w-2xl text-[15px] leading-relaxed">
-            Paste a job link. JobLens reads the posting, checks visa sponsorship history,
-            and scores how the role matches your profile — then explains{" "}
-            <em className="not-italic" style={{ color: "var(--jn-text-secondary)" }}>why</em> it fits or doesn&apos;t.
-          </p>
+    <div className="space-y-4">
+      <div className="tool-panel">
+        <div className="tool-panel-hd">
+          <span>Job match checker</span>
+          <span style={{ color: "var(--jn-text-faint)", fontWeight: 400 }}>H-1B · role · resume</span>
         </div>
+        <div className="tool-panel-bd space-y-3">
+          <form onSubmit={(e) => { e.preventDefault(); onUrlAnalyze(); }} className="tool-row">
+            <input
+              type="url"
+              value={jobUrl}
+              onChange={(e) => setJobUrl(e.target.value)}
+              placeholder="Job URL — LinkedIn, Indeed, Handshake, careers page…"
+              className="ninput flex-1"
+            />
+            <button type="submit" disabled={loading} className="nbtn nbtn-primary shrink-0">
+              {loading ? "Running…" : "Run"}
+            </button>
+          </form>
 
-        <form
-          onSubmit={(e) => { e.preventDefault(); onUrlAnalyze(); }}
-          className="heroBar mx-auto flex w-full max-w-2xl items-center gap-2 px-2 py-2 sm:gap-3"
-        >
-          <input
-            type="url"
-            value={jobUrl}
-            onChange={(e) => setJobUrl(e.target.value)}
-            placeholder="Paste a job URL — LinkedIn, Indeed, Handshake, company careers…"
-            className="flex-1 bg-transparent px-3 py-2 text-[15px] outline-none placeholder:text-[var(--jn-text-faint)]"
-            style={{ color: "var(--jn-text)" }}
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="nbtn nbtn-primary !px-4 !py-2"
-          >
-            {loading && !showManual ? "Working…" : "Check match"}
-          </button>
-        </form>
-
-        <p className="text-xs" style={{ color: "var(--jn-text-faint)" }}>
-          Indeed & Handshake work well here · LinkedIn → use Chrome extension or paste manually below
-        </p>
-
-        {status && !showManual && (
-          <p className={"text-sm " + (status.err ? "text-[#b91c1c]" : "jn-muted")}>
-            {status.msg}
-          </p>
-        )}
-      </section>
+          {(loading || status) && (
+            <div className="tool-status">
+              {status && (
+                <div style={{ color: status.err ? "#b91c1c" : "var(--jn-text-muted)" }}>
+                  {status.msg}
+                </div>
+              )}
+              {loading && (
+                <div className="step-list">
+                  {pipeline.map((key) => {
+                    const done = doneSteps.has(key);
+                    const live = analyzeSteps.find((s) => s.step === key);
+                    return (
+                      <div key={key} className="step-line">
+                        <span className={"step-dot" + (done ? "" : " pending")} />
+                        <span>{STEP_LABELS[key] || key}</span>
+                        {live?.duration_ms != null && (
+                          <span style={{ color: "var(--jn-text-faint)" }}>{live.duration_ms}ms</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {showManual && (
-        <section className="card fadein mx-auto max-w-2xl space-y-4 p-6">
-          <div className="space-y-1 text-left">
-            <h2 className="text-[17px] font-semibold" style={{ color: "var(--jn-text)" }}>Paste the job manually</h2>
-            <p className="jn-muted text-sm">
-              This site couldn&apos;t read the page automatically. Copy the posting from LinkedIn,
-              Handshake, or the company site — then run the check from here.
+        <div className="tool-panel">
+          <div className="tool-panel-hd">Manual input</div>
+          <div className="tool-panel-bd space-y-3">
+            <p className="text-xs" style={{ color: "var(--jn-text-muted)" }}>
+              Page couldn&apos;t be fetched — paste company, title, and full JD below.
             </p>
-          </div>
-
-          <label className="block text-left">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-              Company
-            </span>
-            <input
-              className="ninput"
-              placeholder="e.g. Stripe, Google, a startup name…"
-              value={manualCompany}
-              onChange={(e) => setManualCompany(e.target.value)}
-            />
-          </label>
-
-          <label className="block text-left">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-              Job title
-            </span>
-            <input
-              className="ninput"
-              placeholder="e.g. Software Engineer Intern, ML Engineer…"
-              value={manualTitle}
-              onChange={(e) => setManualTitle(e.target.value)}
-            />
-          </label>
-
-          <label className="block text-left">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-              Job description
-            </span>
+            <input className="ninput" placeholder="Company" value={manualCompany} onChange={(e) => setManualCompany(e.target.value)} />
+            <input className="ninput" placeholder="Job title" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} />
             <textarea
               value={manualJd}
               onChange={(e) => setManualJd(e.target.value)}
-              rows={10}
-              placeholder="Paste the full job description — responsibilities, requirements, location…"
-              className="ninput font-mono text-[13px]"
+              rows={8}
+              placeholder="Job description (80+ characters)"
+              className="ninput"
+              style={{ fontFamily: "var(--jn-font-mono)", fontSize: 12 }}
             />
-          </label>
-
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <button
-              type="button"
-              disabled={loading}
-              onClick={onManualAnalyze}
-              className="nbtn nbtn-primary"
-            >
-              {loading ? "Analyzing…" : "Check match"}
+            <button type="button" disabled={loading} onClick={onManualAnalyze} className="nbtn nbtn-primary">
+              {loading ? "Running…" : "Run analysis"}
             </button>
-            <span className="text-xs text-[#94a3b8]">At least 80 characters in the description</span>
           </div>
-
-          {status && (
-            <p className={"text-left text-sm " + (status.err ? "text-[#b91c1c]" : "text-[#64748b]")}>
-              {status.msg}
-            </p>
-          )}
-        </section>
-      )}
-
-      {!report && (
-        <section className="fadein space-y-8">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <FeatureCard
-              icon="🛂"
-              title="Visa sponsorship"
-              body="Cross-checks the employer against DOL H-1B filing history — critical if you need sponsorship."
-            />
-            <FeatureCard
-              icon="🎯"
-              title="Role fit"
-              body="Matches the title and responsibilities to your target tracks — not just keyword overlap."
-            />
-            <FeatureCard
-              icon="📄"
-              title="Resume match"
-              body="Upload a PDF once; each role gets strong / partial / gap signals against your experience."
-            />
-          </div>
-
-          <div className="featureCard mx-auto max-w-2xl p-6 text-left">
-            <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--jn-accent)" }}>How it works</h2>
-            <ol className="jn-muted mt-4 space-y-3 text-[14px]">
-              <li className="flex gap-3">
-                <span className="jn-step">1</span>
-                <span><strong style={{ color: "var(--jn-text)" }}>Paste a job link</strong> from Indeed, Handshake, or a company careers page.</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="jn-step">2</span>
-                <span><strong style={{ color: "var(--jn-text)" }}>JobLens analyzes</strong> the posting — sponsorship, role track, location, and your profile.</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="jn-step">3</span>
-                <span><strong style={{ color: "var(--jn-text)" }}>Get a verdict</strong> (Apply / Near / Consider / Skip) with plain reasons.</span>
-              </li>
-            </ol>
-          </div>
-        </section>
+        </div>
       )}
 
       {isLoggedIn && (
-        <section className="card fadein mx-auto max-w-2xl p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[#1e293b]">Resume (optional)</h3>
-              <p className="text-xs text-[#64748b]">
-                {resumeUploaded ? "Saved. Will be used for personalized fit." : "PDF only. Improves match scoring per role."}
-              </p>
-            </div>
+        <div className="tool-panel">
+          <div className="tool-panel-hd">Resume</div>
+          <div className="tool-panel-bd flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs" style={{ color: "var(--jn-text-muted)" }}>
+              {resumeUploaded ? "PDF saved — used for fit scoring." : "Optional PDF for resume match."}
+            </p>
             <label className="nbtn cursor-pointer">
-              {resumeBusy ? "Uploading…" : resumeFile ? "Replace PDF" : "Upload PDF"}
-              <input
-                type="file"
-                accept="application/pdf"
-                hidden
-                onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
-              />
+              {resumeBusy ? "Uploading…" : resumeFile ? "Replace" : "Upload PDF"}
+              <input type="file" accept="application/pdf" hidden onChange={(e) => setResumeFile(e.target.files?.[0] || null)} />
             </label>
           </div>
-          {resumeFile && (
-            <p className="mt-2 text-xs text-[#64748b]">{resumeFile.name}</p>
-          )}
-        </section>
+        </div>
       )}
 
       {report && (
-        <section className="fadein space-y-5">
-          <div className="card p-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <span
-                className={
-                  "inline-flex items-center rounded-full px-3.5 py-1 text-sm font-semibold " +
-                  verdictStyle(report.recommendation?.decision)
-                }
-              >
-                {report.recommendation?.decision || "—"}
-              </span>
-              {(company || title) && (
-                <span className="text-sm text-[#64748b]">
-                  {company || "—"} · {title || "—"}
+        <div className="space-y-3">
+          <div className="tool-panel">
+            <div className="tool-panel-hd">Result</div>
+            <div className="tool-panel-bd">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className={verdictStyle(report.recommendation?.decision)}>
+                  {report.recommendation?.decision || "—"}
                 </span>
-              )}
-              {typeof report.recommendation?.fit_ratio === "number" && (
-                <span className="text-sm text-[#64748b]">
-                  Match{" "}
-                  <strong className="text-[#1e293b]">
-                    {Math.round(
-                      (report.recommendation.fit_ratio <= 1
-                        ? report.recommendation.fit_ratio * 100
-                        : report.recommendation.fit_ratio)
-                    )}
-                    %
-                  </strong>
-                </span>
+                {(company || title) && (
+                  <span className="text-sm" style={{ color: "var(--jn-text-muted)" }}>
+                    {company || "—"} · {title || "—"}
+                  </span>
+                )}
+                {typeof report.recommendation?.fit_ratio === "number" && (
+                  <span className="text-sm" style={{ color: "var(--jn-text-muted)" }}>
+                    Match{" "}
+                    <strong style={{ color: "var(--jn-text)" }}>
+                      {Math.round(
+                        report.recommendation.fit_ratio <= 1
+                          ? report.recommendation.fit_ratio * 100
+                          : report.recommendation.fit_ratio
+                      )}
+                      %
+                    </strong>
+                  </span>
+                )}
+              </div>
+              {report.recommendation?.reasoning && (
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--jn-text-secondary)" }}>
+                  {report.recommendation.reasoning}
+                </p>
               )}
             </div>
-            {report.recommendation?.reasoning && (
-              <p className="mt-4 whitespace-pre-wrap text-[15px] leading-relaxed text-[#334155]">
-                {report.recommendation.reasoning}
-              </p>
-            )}
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             {report.sponsorship && (
-              <ResultCard title="H-1B sponsorship">
+              <ResultCard title="H-1B">
                 {report.sponsorship.matched ? (
                   <p>
                     <strong>{report.sponsorship.company?.name || company || "Match"}</strong>
@@ -918,12 +819,12 @@ function AnalyzeView(props: {
                     {report.sponsorship.total_lca_count ?? 0} LCAs
                   </p>
                 ) : (
-                  <p className="text-[#64748b]">{report.sponsorship.reason || "No match."}</p>
+                  <p style={{ color: "var(--jn-text-muted)" }}>{report.sponsorship.reason || "No match."}</p>
                 )}
               </ResultCard>
             )}
             {report.resume_fit?.available && (
-              <ResultCard title="Resume fit">
+              <ResultCard title="Resume">
                 <p>
                   <strong>{report.resume_fit.strong_matches?.length ?? 0}</strong> strong ·{" "}
                   <strong>{report.resume_fit.partial_matches?.length ?? 0}</strong> partial ·{" "}
@@ -937,30 +838,23 @@ function AnalyzeView(props: {
                   <p className="mb-1"><strong>{report.company.company_label}</strong></p>
                 )}
                 {report.company.summary && (
-                  <p className="text-[#64748b]">{report.company.summary}</p>
+                  <p style={{ color: "var(--jn-text-muted)" }}>{report.company.summary}</p>
                 )}
               </ResultCard>
             )}
           </div>
 
-          <details className="text-sm text-[#64748b]">
+          <details className="text-xs" style={{ color: "var(--jn-text-faint)" }}>
             <summary className="cursor-pointer">Raw JSON</summary>
-            <pre className="mt-2 max-h-96 overflow-auto rounded-lg bg-[#f8fafc] p-3 text-xs text-[#334155] ring-1 ring-[#e2e8f0]">
+            <pre
+              className="mt-2 max-h-64 overflow-auto rounded p-2"
+              style={{ background: "var(--jn-bg-subtle)", border: "1px solid var(--jn-border)", fontFamily: "var(--jn-font-mono)" }}
+            >
               {JSON.stringify(report, null, 2)}
             </pre>
           </details>
-        </section>
+        </div>
       )}
-    </div>
-  );
-}
-
-function FeatureCard({ icon, title, body }: { icon: string; title: string; body: string }) {
-  return (
-    <div className="featureCard p-5 text-left">
-      <div className="text-2xl">{icon}</div>
-      <h3 className="mt-2 text-[15px] font-semibold text-[#1e293b]">{title}</h3>
-      <p className="mt-1 text-[13px] leading-relaxed text-[#64748b]">{body}</p>
     </div>
   );
 }
