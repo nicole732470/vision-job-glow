@@ -776,19 +776,19 @@ function AnalyzeView(props: {
         >
           Worth applying?
           <br />
-          <span style={{ color: "var(--jn-brand)" }}>Check in two minutes.</span>
+          <span style={{ color: "var(--jn-brand)" }}>Visa check + role fit.</span>
         </h1>
         <p
           style={{
             marginTop: 10,
-            fontSize: 14.5,
+            fontSize: 15,
             lineHeight: 1.55,
             color: "var(--jn-text-secondary)",
             maxWidth: 560,
           }}
         >
-          Paste a job link. We check <strong style={{ fontWeight: 600 }}>visa sponsorship</strong> first,
-          then whether the role fits your targets and resume — with a plain verdict and reasons.
+          Paste a job link. We check <strong style={{ fontWeight: 700 }}>visa sponsorship</strong> and{" "}
+          <strong style={{ fontWeight: 700 }}>role fit</strong> against your profile and resume — then give you a plain verdict.
         </p>
       </div>
 
