@@ -738,11 +738,53 @@ function AnalyzeView(props: {
   const doneSteps = new Set(analyzeSteps.map((s) => s.step));
 
   return (
-    <div className="space-y-4">
-      <div className="tool-panel">
+    <div className="space-y-5">
+      <div className="pt-2 pb-1">
+        <div
+          style={{
+            fontFamily: "var(--jn-font-mono)",
+            fontSize: 11,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "var(--jn-accent)",
+            marginBottom: 10,
+          }}
+        >
+          // job-fit field notes
+        </div>
+        <h1
+          style={{
+            fontFamily: "var(--jn-font-mono)",
+            fontSize: "clamp(28px, 4.4vw, 38px)",
+            lineHeight: 1.15,
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            color: "var(--jn-text)",
+            margin: 0,
+          }}
+        >
+          Paste a job link.
+          <br />
+          <span style={{ color: "var(--jn-brand)" }}>See it before you apply.</span>
+        </h1>
+        <p
+          style={{
+            marginTop: 10,
+            fontSize: 14.5,
+            lineHeight: 1.55,
+            color: "var(--jn-text-secondary)",
+            maxWidth: 560,
+          }}
+        >
+          JobLens reads the posting, checks H-1B sponsorship history, scores role
+          and resume fit, then explains the verdict in one screen.
+        </p>
+      </div>
+
+      <div className="tool-panel tool-hero">
         <div className="tool-panel-hd">
-          <h1 className="m-0 inline text-[inherit] font-[inherit]">Job match checker</h1>
-          <span style={{ color: "var(--jn-text-faint)", fontWeight: 400 }}>H-1B · role · resume</span>
+          <span>Job match checker</span>
+          <span style={{ color: "var(--jn-text-faint)", fontWeight: 500 }}>h-1b · role · resume</span>
         </div>
         <div className="tool-panel-bd space-y-3">
           <form onSubmit={(e) => { e.preventDefault(); onUrlAnalyze(); }} className="tool-row">
@@ -750,11 +792,11 @@ function AnalyzeView(props: {
               type="url"
               value={jobUrl}
               onChange={(e) => setJobUrl(e.target.value)}
-              placeholder="Job URL — LinkedIn, Indeed, Handshake, careers page…"
+              placeholder="https://… LinkedIn, Indeed, Handshake, careers page"
               className="ninput flex-1"
             />
             <button type="submit" disabled={loading} className="nbtn nbtn-primary shrink-0">
-              {loading ? "Running…" : "Run"}
+              {loading ? "Running…" : "Analyze"}
             </button>
           </form>
 
