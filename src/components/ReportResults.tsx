@@ -1,5 +1,15 @@
 import { useEffect, useRef } from "react";
 import "../lib/report-view.js";
+import "../styles/joblens-report-panel.css";
+
+declare global {
+  interface Window {
+    JobLensReportView?: {
+      renderUnifiedReport: (report: unknown, opts?: unknown) => string;
+      wireMetricTips: (root: HTMLElement) => void;
+    };
+  }
+}
 
 const RV = globalThis.JobLensReportView;
 
@@ -11,7 +21,15 @@ export function ReportResults({ report }: { report: Record<string, unknown> }) {
     if (ref.current && RV?.wireMetricTips) RV.wireMetricTips(ref.current);
   }, [report]);
 
-  if (!report || !RV?.renderUnifiedReport) return null;
+  if (!report) return null;
+
+  if (!RV?.renderUnifiedReport) {
+    return (
+      <p className="text-sm" style={{ color: "var(--jn-text-muted)" }}>
+        Report renderer failed to load — hard refresh (Cmd+Shift+R).
+      </p>
+    );
+  }
 
   return (
     <section

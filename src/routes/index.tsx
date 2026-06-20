@@ -864,14 +864,7 @@ function AnalyzeView(props: {
         </div>
       )}
 
-      {report && (
-        <div className="tool-panel">
-          <div className="tool-panel-hd">Result</div>
-          <div className="tool-panel-bd">
-            <ReportResults report={report as unknown as Record<string, unknown>} />
-          </div>
-        </div>
-      )}
+      {report && <ReportResults report={report as unknown as Record<string, unknown>} />}
     </div>
   );
 }
