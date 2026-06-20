@@ -879,7 +879,7 @@ function AnalyzeView(props: {
 function ResultCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="card p-5">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">{title}</h3>
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">{title}</h2>
       <div className="text-[14px] text-[#37352f]">{children}</div>
     </div>
   );
