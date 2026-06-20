@@ -705,7 +705,7 @@ function AnalyzeView(props: {
     <div className="space-y-4">
       <div className="tool-panel">
         <div className="tool-panel-hd">
-          <span>Job match checker</span>
+          <h1 className="m-0 inline text-[inherit] font-[inherit]">Job match checker</h1>
           <span style={{ color: "var(--jn-text-faint)", fontWeight: 400 }}>H-1B · role · resume</span>
         </div>
         <div className="tool-panel-bd space-y-3">
