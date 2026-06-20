@@ -61,7 +61,25 @@ Onboarding is **once** at register/login — not a multi-step wizard on every vi
 
 Main UI: `src/routes/index.tsx`
 
-## What to avoid
+## LinkedIn job URLs
+
+**Do not** expect `linkedin.com/jobs/...` to parse server-side — LinkedIn blocks bots.
+
+Web app flow:
+
+1. User pastes LinkedIn URL → show JD paste box with clear message (no API fetch).
+2. User pastes JD text → `POST /analyze` works.
+
+**Chrome extension** reads the page on LinkedIn directly — that is the right surface for LinkedIn jobs.
+
+## HTTPS web → HTTP API
+
+Lovable is HTTPS; EC2 API is HTTP. Browser blocks direct `fetch` (mixed content).
+
+- Browser calls same-origin `/api/*`
+- Server route `src/routes/api/$.tsx` proxies to `VITE_API_URL` / `JOBLENS_API_URL`
+
+Do not point client-side `fetch` at `http://3.128.164.130:8000` from the browser.
 
 - Do not point API at localhost in production env
 - Do not break CORS assumptions (HTTPS Lovable → HTTP EC2 is OK)

@@ -18,7 +18,12 @@ export const Route = createFileRoute("/")({
 });
 
 // ---------- Config ----------
-const API = (import.meta.env.VITE_API_URL ?? "http://3.128.164.130:8000").replace(/\/$/, "");
+const BACKEND = (import.meta.env.VITE_API_URL ?? "http://3.128.164.130:8000").replace(/\/$/, "");
+/** Browser uses same-origin /api proxy (HTTPS Lovable → HTTP EC2 is blocked as mixed content). */
+function apiBase() {
+  if (typeof window !== "undefined") return "/api";
+  return BACKEND;
+}
 const TOKEN_KEY = "joblens_token";
 const EMAIL_KEY = "joblens_email";
 const SANS =
@@ -37,8 +42,25 @@ function safeJson(t: string) {
     return {};
   }
 }
+function friendlyFetchError(e: unknown): string {
+  const msg = String((e as Error)?.message || e);
+  if (msg === "Failed to fetch" || /NetworkError|Load failed/i.test(msg)) {
+    return "Could not reach the JobLens API. Try pasting the job description manually below.";
+  }
+  return msg;
+}
+
+function isLinkedInJobUrl(url: string) {
+  return /linkedin\.com\/jobs/i.test(url);
+}
+
 async function apiJson(path: string, init: RequestInit) {
-  const res = await fetch(`${API}${path}`, init);
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, init);
+  } catch (e) {
+    throw new Error(friendlyFetchError(e));
+  }
   const text = await res.text();
   const data = text ? (safeJson(text) as any) : {};
   if (!res.ok) throw new Error(data?.detail || text || `HTTP ${res.status}`);
@@ -243,6 +265,12 @@ function JobLensApp() {
       let _title = title;
 
       if (jobUrl.trim() && _jd.trim().length < 80) {
+        if (isLinkedInJobUrl(jobUrl)) {
+          setShowPaste(true);
+          throw new Error(
+            "LinkedIn blocks server fetch. Open that job on LinkedIn, copy the full description, paste it below, then Analyze again — or use the JobLens Chrome extension on the posting."
+          );
+        }
         ok("Fetching job page…");
         const data = await apiJson("/jobs/parse-url", {
           method: "POST",
@@ -274,7 +302,7 @@ function JobLensApp() {
       setReport(r);
       ok(`Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
     } catch (e) {
-      err(String((e as Error).message));
+      err(friendlyFetchError(e));
     } finally {
       setLoading(false);
     }
@@ -286,7 +314,7 @@ function JobLensApp() {
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`${API}/resume/upload`, {
+      const res = await fetch(`${apiBase()}/resume/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: form,
@@ -296,7 +324,7 @@ function JobLensApp() {
       setResumeUploaded(true);
       ok("Resume saved.");
     } catch (e) {
-      err(String((e as Error).message));
+      err(friendlyFetchError(e));
     } finally {
       setResumeBusy(false);
     }
@@ -588,7 +616,7 @@ function AnalyzeView(props: {
             onClick={() => setShowPaste(!showPaste)}
             className="text-[#787774] underline-offset-4 hover:underline"
           >
-            {showPaste ? "Hide JD paste box" : "LinkedIn or blocked? Paste the JD instead"}
+            {showPaste ? "Hide JD paste box" : "LinkedIn / blocked site? Paste the job description instead"}
           </button>
         </div>
 
