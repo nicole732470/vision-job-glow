@@ -435,7 +435,7 @@ function JobLensApp() {
       headers: headers(),
       body: JSON.stringify({ email: e, password: p }),
     });
-    setSession(data.token, data.email);
+    setSession(data.token as string, data.email as string);
     setAuthModal(null);
 
     if (mode === "register") {
