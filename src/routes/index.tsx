@@ -5,16 +5,16 @@ import { JOB_TOKENS_CSS, STEP_LABELS } from "../lib/job-tokens";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "JobLens — Check if a job fits you" },
+      { title: "JobLens — Skip bad applications" },
       {
         name: "description",
         content:
-          "Paste a job link. JobLens checks H-1B history, role fit, and resume match — then explains why it fits or doesn't.",
+          "Paste a job link. JobLens checks visa sponsorship first, then whether the role matches your profile and resume — before you spend time applying.",
       },
-      { property: "og:title", content: "JobLens — Check if a job fits you" },
+      { property: "og:title", content: "JobLens — Skip bad applications" },
       {
         property: "og:description",
-        content: "Know how a job matches you — sponsorship, role, resume — before you apply.",
+        content: "Sponsorship check + role match in one pass. Save time before you apply.",
       },
       { property: "og:url", content: "https://job-lens-main.lovable.app/" },
     ],
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/")({
           applicationCategory: "BusinessApplication",
           operatingSystem: "Web",
           description:
-            "JobLens checks H-1B sponsorship history, role fit, and resume match for any job link so you know before you apply.",
+            "Paste a job link. JobLens checks visa sponsorship, then role and resume match, so you don't waste time on the wrong application.",
           url: "https://job-lens-main.lovable.app/",
           offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
         }),
@@ -512,9 +512,16 @@ function JobLensApp() {
         {view === "onboarding" && profile && (
           <ProfileEditor
             initial={profile}
-            heading="Set up your JobLens profile"
-            sub="A one-time setup so verdicts match what you actually care about. Edit anytime from the header."
-            primaryLabel="Save and continue"
+            heading="Tell us what you're looking for"
+            sub="One-time setup (~3 min). We use this like your candidate profile: target roles, locations, dealbreakers, and preferences — so verdicts match your goals, not generic keywords."
+            primaryLabel="Save & continue"
+            isOnboarding
+            resumeUploaded={resumeUploaded}
+            resumeBusy={resumeBusy}
+            onResumePick={(f) => {
+              setResumeFile(f);
+              if (f) uploadResume(f);
+            }}
             onSave={async (p) => {
               await saveProfile(p);
               setView("analyze");
@@ -528,7 +535,7 @@ function JobLensApp() {
           <ProfileEditor
             initial={profile ?? EMPTY_PROFILE}
             heading="Your profile"
-            sub="JobLens uses this to weight the verdict and explain its reasoning."
+            sub="Same fields as your saved candidate profile. Changes apply to the next analysis."
             primaryLabel="Save changes"
             onSave={async (p) => {
               await saveProfile(p);
@@ -750,7 +757,7 @@ function AnalyzeView(props: {
             marginBottom: 10,
           }}
         >
-          // job-fit field notes
+          // save time before you apply
         </div>
         <h1
           style={{
@@ -763,9 +770,9 @@ function AnalyzeView(props: {
             margin: 0,
           }}
         >
-          Paste a job link.
+          Worth applying?
           <br />
-          <span style={{ color: "var(--jn-brand)" }}>See it before you apply.</span>
+          <span style={{ color: "var(--jn-brand)" }}>Check in two minutes.</span>
         </h1>
         <p
           style={{
@@ -776,15 +783,14 @@ function AnalyzeView(props: {
             maxWidth: 560,
           }}
         >
-          JobLens reads the posting, checks H-1B sponsorship history, scores role
-          and resume fit, then explains the verdict in one screen.
+          Paste a job link. We check <strong style={{ fontWeight: 600 }}>visa sponsorship</strong> first,
+          then whether the role fits your targets and resume — with a plain verdict and reasons.
         </p>
       </div>
 
       <div className="tool-panel tool-hero">
         <div className="tool-panel-hd">
-          <span>Job match checker</span>
-          <span style={{ color: "var(--jn-text-faint)", fontWeight: 500 }}>h-1b · role · resume</span>
+          <span>Check a posting</span>
         </div>
         <div className="tool-panel-bd space-y-3">
           <form onSubmit={(e) => { e.preventDefault(); onUrlAnalyze(); }} className="tool-row">
@@ -858,7 +864,7 @@ function AnalyzeView(props: {
           <div className="tool-panel-hd">Resume</div>
           <div className="tool-panel-bd flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs" style={{ color: "var(--jn-text-muted)" }}>
-              {resumeUploaded ? "PDF saved — used for fit scoring." : "Optional PDF for resume match."}
+              {resumeUploaded ? "Saved — used when scoring the posting against you." : "PDF improves the match section of your verdict."}
             </p>
             <label className="nbtn cursor-pointer">
               {resumeBusy ? "Uploading…" : resumeFile ? "Replace" : "Upload PDF"}
@@ -906,7 +912,7 @@ function AnalyzeView(props: {
 
           <div className="grid gap-3 sm:grid-cols-2">
             {report.sponsorship && (
-              <ResultCard title="H-1B">
+              <ResultCard title="Sponsorship">
                 {report.sponsorship.matched ? (
                   <p>
                     <strong>{report.sponsorship.company?.name || company || "Match"}</strong>
@@ -919,7 +925,7 @@ function AnalyzeView(props: {
               </ResultCard>
             )}
             {report.resume_fit?.available && (
-              <ResultCard title="Resume">
+              <ResultCard title="Your resume">
                 <p>
                   <strong>{report.resume_fit.strong_matches?.length ?? 0}</strong> strong ·{" "}
                   <strong>{report.resume_fit.partial_matches?.length ?? 0}</strong> partial ·{" "}
@@ -956,9 +962,9 @@ function AnalyzeView(props: {
 
 function ResultCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="card p-5">
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">{title}</h2>
-      <div className="text-[14px] text-[#37352f]">{children}</div>
+    <div className="card p-4">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--jn-text-faint)", fontFamily: "var(--jn-font-mono)" }}>{title}</h3>
+      <div className="text-[14px]" style={{ color: "var(--jn-text)" }}>{children}</div>
     </div>
   );
 }
@@ -1002,13 +1008,13 @@ function AuthModal({
         className="card fadein w-full max-w-sm p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-xl font-semibold">
-          {mode === "register" ? "Create your account" : "Welcome back"}
+        <h2 className="text-xl font-semibold" style={{ fontFamily: "var(--jn-font-mono)", color: "var(--jn-text)" }}>
+          {mode === "register" ? "Sign up" : "Sign in"}
         </h2>
-        <p className="mt-1 text-sm text-[#787774]">
+        <p className="mt-1 text-sm" style={{ color: "var(--jn-text-muted)" }}>
           {mode === "register"
-            ? "Save your preferences and resume across sessions."
-            : "Sign in to keep your profile and resume in sync."}
+            ? "Next you'll set target roles, locations, and dealbreakers — plus optional resume upload."
+            : "Pick up where you left off."}
         </p>
         <form onSubmit={submit} className="mt-5 space-y-3">
           <label className="block">
@@ -1065,6 +1071,10 @@ function ProfileEditor({
   onSave,
   onSkip,
   skipLabel = "Skip for now",
+  isOnboarding = false,
+  resumeUploaded = false,
+  resumeBusy = false,
+  onResumePick,
 }: {
   initial: Profile;
   heading: string;
@@ -1073,6 +1083,10 @@ function ProfileEditor({
   onSave: (p: Profile) => Promise<void>;
   onSkip: () => void;
   skipLabel?: string;
+  isOnboarding?: boolean;
+  resumeUploaded?: boolean;
+  resumeBusy?: boolean;
+  onResumePick?: (f: File) => void;
 }) {
   const [tracks, setTracks] = useState<Track[]>(initial.tracks ?? []);
   const [avoid, setAvoid] = useState(
@@ -1151,11 +1165,33 @@ function ProfileEditor({
   return (
     <div className="fadein space-y-6">
       <header>
-        <h1 className="text-[28px] font-bold leading-tight">{heading}</h1>
-        <p className="mt-1 text-sm text-[#787774]">{sub}</p>
+        <h1 className="text-[28px] font-bold leading-tight" style={{ fontFamily: "var(--jn-font-mono)", color: "var(--jn-text)" }}>{heading}</h1>
+        <p className="mt-1 text-sm" style={{ color: "var(--jn-text-muted)" }}>{sub}</p>
       </header>
 
-      <Section title="Tracks you want" hint="Add the kinds of roles you're targeting. Priority 1 = highest.">
+      {isOnboarding && onResumePick && (
+        <Section title="Resume (PDF)" hint="Upload once — we compare each job's requirements to your experience.">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="nbtn cursor-pointer">
+              {resumeBusy ? "Uploading…" : resumeUploaded ? "Replace PDF" : "Upload resume"}
+              <input
+                type="file"
+                accept="application/pdf"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onResumePick(f);
+                }}
+              />
+            </label>
+            <span className="text-xs" style={{ color: "var(--jn-text-faint)" }}>
+              {resumeUploaded ? "Saved." : "Optional now; improves match scoring."}
+            </span>
+          </div>
+        </Section>
+      )}
+
+      <Section title="Target roles (tracks)" hint="Role categories you want. Priority 1 = most wanted. Example titles help us match LinkedIn wording.">
         <div className="space-y-3">
           {tracks.length === 0 && (
             <p className="text-sm text-[#9b9a97]">No tracks yet. Add your first below.</p>
@@ -1202,11 +1238,11 @@ function ProfileEditor({
         </div>
       </Section>
 
-      <Section title="Avoid tracks" hint="Roles you don't want, one per line.">
+      <Section title="Roles to avoid" hint="If a posting looks like these, we lean Skip even when keywords overlap.">
         <textarea rows={3} className="ninput font-mono text-[13px]" value={avoid} onChange={(e) => setAvoid(e.target.value)} />
       </Section>
 
-      <Section title="Locations">
+      <Section title="Locations" hint="Summary in plain English, or tier lists: Tier 1 = want most, Tier 3 = hard no.">
         <FieldInline label="Summary">
           <input className="ninput" placeholder="e.g. Chicago preferred, remote OK" value={locSummary} onChange={(e) => setLocSummary(e.target.value)} />
         </FieldInline>
@@ -1227,15 +1263,15 @@ function ProfileEditor({
         <textarea rows={3} className="ninput font-mono text-[13px]" value={trajectory} onChange={(e) => setTrajectory(e.target.value)} placeholder={"Building LLM agents\nMoving into applied AI roles"} />
       </Section>
 
-      <Section title="Dealbreakers" hint="Hard nos, one per line.">
+      <Section title="Dealbreakers" hint="Hard nos — any match in the JD can veto the verdict (e.g. no sponsorship stated, unpaid internship).">
         <textarea rows={3} className="ninput font-mono text-[13px]" value={dealbreakers} onChange={(e) => setDealbreakers(e.target.value)} placeholder={"no sponsorship\nstrictly onsite Bay Area"} />
       </Section>
 
-      <Section title="Preferences" hint="Nice-to-haves — one per line.">
+      <Section title="Preferences" hint="Nice-to-haves — nudge the score, never a veto.">
         <textarea rows={3} className="ninput font-mono text-[13px]" value={prefs} onChange={(e) => setPrefs(e.target.value)} />
       </Section>
 
-      <Section title="Technical penalties" hint="Stacks/tools that count against a posting (one per line).">
+      <Section title="Stacks you won't do" hint="JD mentions these → role priority drops (e.g. legacy PHP, hardware-only).">
         <textarea rows={3} className="ninput font-mono text-[13px]" value={penalties} onChange={(e) => setPenalties(e.target.value)} placeholder={"PHP\nlegacy SOAP"} />
       </Section>
 
@@ -1243,10 +1279,10 @@ function ProfileEditor({
         <textarea rows={2} className="ninput font-mono text-[13px]" value={schools} onChange={(e) => setSchools(e.target.value)} />
       </Section>
 
-      <Section title="Sponsorship">
-        <label className="inline-flex items-center gap-2 text-sm">
+      <Section title="Visa">
+        <label className="inline-flex items-center gap-2 text-sm" style={{ color: "var(--jn-text-secondary)" }}>
           <input type="checkbox" checked={needsSponsor} onChange={(e) => setNeedsSponsor(e.target.checked)} />
-          I need H-1B / visa sponsorship
+          I need employer visa sponsorship (used when the JD is silent or says no sponsorship)
         </label>
       </Section>
 

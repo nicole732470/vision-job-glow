@@ -40,11 +40,11 @@ body { font-family: var(--jn-font); }
 `;
 
 export const STEP_LABELS: Record<string, string> = {
-  prepare: "Load profile & resume",
-  sponsorship_lookup: "H-1B employer lookup",
-  parse_jd: "Parse job description",
-  join_prefetch: "Merge prefetch",
-  react_agent: "Score fit (LLM)",
-  fill_gaps: "Fill missing signals",
-  langgraph_invoke: "Build verdict",
+  prepare: "Your preferences",
+  sponsorship_lookup: "Visa sponsor check",
+  parse_jd: "Read posting",
+  join_prefetch: "Combine signals",
+  react_agent: "Score & explain",
+  fill_gaps: "Fill gaps",
+  langgraph_invoke: "Final verdict",
 };
