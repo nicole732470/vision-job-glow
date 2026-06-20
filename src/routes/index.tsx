@@ -11,13 +11,30 @@ export const Route = createFileRoute("/")({
         content:
           "Paste a job link. JobLens checks H-1B history, role fit, and resume match — then explains why it fits or doesn't.",
       },
-      { property: "og:title", content: "JobLens" },
+      { property: "og:title", content: "JobLens — Check if a job fits you" },
       {
         property: "og:description",
         content: "Know how a job matches you — sponsorship, role, resume — before you apply.",
       },
+      { property: "og:url", content: "https://job-lens-main.lovable.app/" },
     ],
-    links: [],
+    links: [{ rel: "canonical", href: "https://job-lens-main.lovable.app/" }],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "SoftwareApplication",
+          name: "JobLens",
+          applicationCategory: "BusinessApplication",
+          operatingSystem: "Web",
+          description:
+            "JobLens checks H-1B sponsorship history, role fit, and resume match for any job link so you know before you apply.",
+          url: "https://job-lens-main.lovable.app/",
+          offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+        }),
+      },
+    ],
   }),
   component: JobLensApp,
 });
@@ -418,7 +435,7 @@ function JobLensApp() {
       headers: headers(),
       body: JSON.stringify({ email: e, password: p }),
     });
-    setSession(data.token, data.email);
+    setSession(data.token as string, data.email as string);
     setAuthModal(null);
 
     if (mode === "register") {
@@ -428,7 +445,7 @@ function JobLensApp() {
     }
     // login: check profile
     try {
-      const prof = await apiJson("/me/profile", { headers: headers(data.token) });
+      const prof = await apiJson("/me/profile", { headers: headers(data.token as string) });
       const merged = normalizeProfile(prof);
       setProfile(merged);
       setView(isProfileFilled(merged) ? "analyze" : "onboarding");
@@ -688,7 +705,7 @@ function AnalyzeView(props: {
     <div className="space-y-4">
       <div className="tool-panel">
         <div className="tool-panel-hd">
-          <span>Job match checker</span>
+          <h1 className="m-0 inline text-[inherit] font-[inherit]">Job match checker</h1>
           <span style={{ color: "var(--jn-text-faint)", fontWeight: 400 }}>H-1B · role · resume</span>
         </div>
         <div className="tool-panel-bd space-y-3">
@@ -862,7 +879,7 @@ function AnalyzeView(props: {
 function ResultCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="card p-5">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">{title}</h3>
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">{title}</h2>
       <div className="text-[14px] text-[#37352f]">{children}</div>
     </div>
   );
