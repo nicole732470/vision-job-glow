@@ -40,7 +40,7 @@ export const Route = createFileRoute("/")({
 });
 
 // ---------- Config ----------
-const BACKEND = (import.meta.env.VITE_API_URL ?? "http://3.128.164.130:8000").replace(/\/$/, "");
+const BACKEND = (import.meta.env.VITE_API_URL ?? "https://3-128-164-130.sslip.io").replace(/\/$/, "");
 /** Browser uses same-origin /api proxy (HTTPS Lovable → HTTP EC2 is blocked as mixed content). */
 function apiBase() {
   if (typeof window !== "undefined") return "/api";

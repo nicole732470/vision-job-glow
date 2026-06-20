@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 const BACKEND = (
   process.env.JOBLENS_API_URL ??
   process.env.VITE_API_URL ??
-  "http://3.128.164.130:8000"
+  "https://3-128-164-130.sslip.io"
 ).replace(/\/$/, "");
 
 const TIMEOUT_MS: Record<string, number> = {
