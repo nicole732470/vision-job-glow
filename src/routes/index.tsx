@@ -90,9 +90,7 @@ function friendlyFetchError(e: unknown): string {
   return msg;
 }
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+import { buildAnalyzeBody, runAnalyzeAsync } from "../lib/analyze-client.js";
 
 async function apiJson(path: string, init: RequestInit) {
   let res: Response;
@@ -257,6 +255,25 @@ function JobLensApp() {
     setEmail(e);
   }, []);
 
+  // Chrome extension sends users here to sign in / edit profile (single auth surface).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("from") !== "extension") return;
+
+    const panel = params.get("panel");
+    const t = localStorage.getItem(TOKEN_KEY);
+
+    if (!t) {
+      setAuthModal(panel === "register" ? "register" : "login");
+      ok("Sign in or register — your Chrome extension will sync automatically.");
+      return;
+    }
+
+    ok("Synced with extension. Return to LinkedIn and click Retry on the job.");
+    if (panel === "profile") setView("profile");
+    else if (panel === "register") setView("profile");
+  }, []);
+
   // fetch profile + resume on login
   useEffect(() => {
     if (!token) {
@@ -291,6 +308,7 @@ function JobLensApp() {
     setEmail(e);
     localStorage.setItem(TOKEN_KEY, t);
     localStorage.setItem(EMAIL_KEY, e);
+    window.dispatchEvent(new CustomEvent("joblens-auth-changed"));
   }
   function logout() {
     setToken(null);
@@ -298,6 +316,7 @@ function JobLensApp() {
     setProfile(null);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(EMAIL_KEY);
+    window.dispatchEvent(new CustomEvent("joblens-auth-changed"));
     setView("analyze");
     setReport(null);
   }
@@ -372,45 +391,24 @@ function JobLensApp() {
     _jobLocation: string | null = null,
   ) {
     ok("Starting analysis…");
-    const body = {
+    const body = buildAnalyzeBody({
       jd_text: _jd,
-      company: _company || null,
-      title: _title || null,
+      company: _company,
+      title: _title,
       job_url: jobUrl || null,
       job_location: _jobLocation,
-    };
-    const started = (await apiJson("/analyze/async", {
-      method: "POST",
-      headers: headers(token),
-      body: JSON.stringify(body),
-    })) as { job_id?: string; status?: string };
-
-    const jobId = started.job_id;
-    if (!jobId) throw new Error("Failed to start analysis");
+    });
 
     const t0 = performance.now();
-    for (let i = 0; i < 120; i++) {
-      await sleep(1500);
-      const job = (await apiJson(`/analyze/jobs/${jobId}`, { headers: headers(token) })) as {
-        status?: string;
-        steps?: Array<{ step: string; duration_ms?: number }>;
-        report?: Report;
-        error?: string;
-        message?: string;
-      };
-      if (job.steps?.length) setAnalyzeSteps(job.steps);
-      if (job.message) ok(job.message);
-
-      if (job.status === "done" && job.report) {
-        setReport(job.report);
-        ok(`Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
-        return;
-      }
-      if (job.status === "error") {
-        throw new Error(job.error || "Analysis failed");
-      }
-    }
-    throw new Error("Analysis is taking longer than expected — check back or retry.");
+    const report = await runAnalyzeAsync(apiBase(), body, {
+      fetchJson: (path, init) => apiJson(path, { ...init, headers: headers(token) }),
+      onProgress: (job) => {
+        if (job.steps?.length) setAnalyzeSteps(job.steps);
+        if (job.message) ok(job.message);
+      },
+    });
+    setReport(report);
+    ok(`Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
   }
 
   async function uploadResume(file: File) {
@@ -454,9 +452,12 @@ function JobLensApp() {
     setSession(data.token as string, data.email as string);
     setAuthModal(null);
 
+    const fromExtension = new URLSearchParams(window.location.search).get("from") === "extension";
+
     if (mode === "register") {
       setProfile({ ...EMPTY_PROFILE });
       setView("onboarding");
+      if (fromExtension) ok("Account created — finish profile setup, then return to LinkedIn.");
       return;
     }
     // login: check profile
@@ -464,11 +465,14 @@ function JobLensApp() {
       const prof = await apiJson("/me/profile", { headers: headers(data.token as string) });
       const merged = normalizeProfile(prof);
       setProfile(merged);
-      setView(isProfileFilled(merged) ? "analyze" : "onboarding");
+      const panel = new URLSearchParams(window.location.search).get("panel");
+      if (panel === "profile") setView("profile");
+      else setView(isProfileFilled(merged) ? "analyze" : "onboarding");
     } catch {
       setProfile({ ...EMPTY_PROFILE });
       setView("onboarding");
     }
+    if (fromExtension) ok("Signed in — extension synced. Return to LinkedIn and click Retry.");
   }
 
   async function saveProfile(p: Profile) {
@@ -581,9 +585,6 @@ function JobLensApp() {
           color: var(--jn-brand); font-weight: 700; letter-spacing: -0.02em;
           font-family: var(--jn-font-mono);
         }
-        .jn-brand::before {
-          content: "◐ "; color: var(--jn-accent); margin-right: 2px;
-        }
         .tool-panel {
           background: var(--jn-bg-panel);
           border: 1px solid var(--jn-border);
@@ -686,7 +687,8 @@ function Header({
 }) {
   return (
     <header className="tool-shell flex items-center justify-between px-5 pt-4 pb-2">
-      <button onClick={onLogo} className="jn-brand text-[17px]">
+      <button onClick={onLogo} className="jn-brand text-[17px] flex items-center gap-2">
+        <img src="/logo.svg" alt="" width={20} height={20} className="shrink-0" />
         JobLens
       </button>
       <div className="flex items-center gap-1.5 text-sm">
@@ -819,6 +821,10 @@ function AnalyzeView(props: {
               )}
               {loading && (
                 <div className="step-list">
+                  <div className="step-line" style={{ marginBottom: 6 }}>
+                    <img src="/logo.svg" alt="" width={16} height={16} style={{ flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, color: "var(--jn-text-secondary)" }}>JobLens</span>
+                  </div>
                   {pipeline.map((key) => {
                     const done = doneSteps.has(key);
                     const live = analyzeSteps.find((s) => s.step === key);

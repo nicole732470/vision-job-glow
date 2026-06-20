@@ -6,9 +6,10 @@
 .jl-report-results {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  --lca-fs-sm: 11px;
-  --lca-fs-xs: 10px;
+  gap: 16px;
+  overflow: visible;
+  --lca-fs-sm: 12px;
+  --lca-fs-xs: 11px;
   --jn-bg: #fdfaf3;
   --jn-bg-subtle: #f0e9da;
   --jn-text: #2a2418;
@@ -52,6 +53,11 @@
   color: #37352f;
   box-shadow: 0 0 0 1px #e0e0de;
 }
+.lca-pill-no-record {
+  background: #fde1df;
+  color: #8a1f1c;
+  box-shadow: 0 0 0 1px #f3c8c5;
+}
 .lca-pill-skip {
   background: #fde1df;
   color: #8a1f1c;
@@ -61,12 +67,12 @@
 .lca-section-card {
   border-radius: 14px;
   border: 1px solid rgba(42, 36, 24, 0.08);
-  padding: 12px 14px;
+  padding: 14px 14px 16px;
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 1px 2px rgba(42, 36, 24, 0.04);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 .lca-section-card--company {
   background: rgba(255, 255, 255, 0.85);
@@ -75,19 +81,29 @@
   border-color: rgba(74, 103, 65, 0.2);
   background: linear-gradient(160deg, rgba(238, 245, 232, 0.95), rgba(255, 255, 255, 0.9));
 }
+.lca-section-card--h1b.lca-section-card--h1b-none {
+  border-color: rgba(138, 31, 28, 0.28);
+  background: linear-gradient(160deg, rgba(254, 242, 241, 0.98), rgba(255, 255, 255, 0.94));
+}
 .lca-section-card--fit {
   border-color: rgba(196, 101, 74, 0.18);
   background: linear-gradient(160deg, rgba(255, 248, 242, 0.95), rgba(255, 255, 255, 0.92));
 }
 
 .lca-section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--jn-text-faint);
   line-height: 1.2;
   margin-bottom: 2px;
+}
+.lca-section-label--pillar {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--jn-text-secondary);
 }
 
 .lca-h1b-subline {
@@ -106,6 +122,14 @@
   padding-top: 8px;
   border-top: 1px dashed rgba(55, 53, 47, 0.12);
 }
+.lca-job-title--solo {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--jn-text);
+}
 .lca-job-location {
   font-size: var(--lca-fs-xs);
   font-weight: 500;
@@ -115,51 +139,141 @@
 }
 
 .lca-section-card--resume {
-  border-color: rgba(74, 103, 65, 0.16);
-  background: linear-gradient(160deg, rgba(248, 252, 245, 0.95), rgba(255, 255, 255, 0.92));
+  border-color: rgba(196, 101, 74, 0.16);
+  background: linear-gradient(160deg, rgba(255, 248, 242, 0.95), rgba(255, 255, 255, 0.92));
+  padding: 14px 14px 16px;
+  gap: 12px;
 }
 .lca-resume-summary {
   font-size: var(--lca-fs-sm);
   color: var(--jn-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+.lca-resume-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(42, 36, 24, 0.08);
+}
+.lca-resume-file-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.lca-resume-file-name {
+  font-size: var(--lca-fs-sm);
+  font-weight: 600;
+  color: var(--jn-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lca-resume-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+}
+.lca-resume-block-body {
+  margin-top: 4px;
+  font-size: var(--lca-fs-sm);
   line-height: 1.45;
+  color: var(--jn-text-secondary);
+}
+.lca-resume-block-body .lca-resume-empty {
+  margin: 0;
+}
+.lca-resume-block-body .lca-resume-list {
   margin: 0;
 }
 .lca-resume-cols {
   display: grid;
   grid-template-columns: 1fr;
   gap: 10px;
+  margin: 0;
+  width: 100%;
+}
+.lca-resume-col {
+  padding: 12px 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(42, 36, 24, 0.1);
+  box-shadow: 0 1px 2px rgba(42, 36, 24, 0.04);
+  min-width: 0;
+}
+.lca-resume-col-body {
+  margin-top: 4px;
+}
+.lca-resume-col-hd {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--jn-text-secondary);
+  margin: 0 0 8px;
+  line-height: 1.2;
+}
+.lca-resume-col--gaps {
+  border-color: rgba(138, 31, 28, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+}
+.lca-resume-col--gaps .lca-resume-col-hd {
+  color: #8a1f1c;
+}
+.lca-resume-col--strong .lca-resume-col-hd {
+  color: #1c5b2e;
+}
+.lca-resume-col--partial .lca-resume-col-hd {
+  color: #7a5b00;
 }
 @media (min-width: 520px) {
   .lca-resume-cols {
     grid-template-columns: repeat(3, 1fr);
   }
 }
-.lca-resume-col-hd {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--jn-text-faint);
-  margin-bottom: 6px;
-}
 .lca-resume-list {
   margin: 0;
-  padding-left: 14px;
-  font-size: 11px;
-  line-height: 1.35;
+  padding-left: 16px;
+  font-size: var(--lca-fs-sm);
+  line-height: 1.5;
   color: var(--jn-text-secondary);
+  list-style: disc;
 }
-.lca-resume-list li { margin: 0 0 4px; }
+.lca-resume-list--ordered {
+  padding-left: 22px;
+  list-style: decimal;
+}
+.lca-resume-block-body .lca-resume-list li {
+  margin: 0 0 8px;
+  padding-left: 2px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .lca-resume-empty {
-  font-size: 11px;
+  font-size: var(--lca-fs-sm);
   color: var(--jn-text-faint);
   margin: 0;
+  line-height: 1.45;
+}
+
+.jl-report-shell {
+  overflow: visible;
+  padding-bottom: 12px;
+}
+.jl-report-wrap {
+  overflow: visible;
+  margin: 4px 0 24px;
 }
 
 .lca-analyze-inner {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
 }
 .lca-fadein {
   animation: jl-fadein 0.35s ease both;
@@ -202,6 +316,10 @@
   border-color: #f3e2a0;
 }
 .lca-verdict-card--skip {
+  background: #fef2f1;
+  border-color: #f3c8c5;
+}
+.lca-verdict-card--no-record {
   background: #fef2f1;
   border-color: #f3c8c5;
 }
@@ -256,14 +374,14 @@
 }
 .lca-metric-val {
   display: block;
-  font-size: var(--lca-fs-sm);
+  font-size: 14px;
   font-weight: 650;
   color: var(--jn-text);
   line-height: 1.2;
 }
 .lca-metric-lbl {
   display: block;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 650;
   color: var(--jn-text-faint);
   margin-top: 3px;
