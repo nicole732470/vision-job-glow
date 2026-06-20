@@ -63,10 +63,12 @@ export function ReportResults({ report }: { report: Record<string, unknown> }) {
   }
 
   return (
-    <section
-      className="jl-report-shell"
-      ref={ref}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="jl-report-wrap">
+      <section
+        className="jl-report-shell"
+        ref={ref}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
   );
 }
