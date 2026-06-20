@@ -1,33 +1,69 @@
-import { useEffect, useRef } from "react";
-import "../lib/report-view.js";
+import { useEffect, useRef, useState } from "react";
 import "../styles/joblens-report-panel.css";
 
-declare global {
-  interface Window {
-    JobLensReportView?: {
-      renderUnifiedReport: (report: unknown, opts?: unknown) => string;
-      wireMetricTips: (root: HTMLElement) => void;
-    };
-  }
-}
-
-const RV = globalThis.JobLensReportView;
-
-/** Same HTML layout as the Chrome extension — no duplicate React metrics UI. */
+/** Same HTML layout as the Chrome extension — client-only (report-view uses document). */
 export function ReportResults({ report }: { report: Record<string, unknown> }) {
   const ref = useRef<HTMLElement>(null);
+  const [html, setHtml] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [wireTips, setWireTips] = useState<((root: HTMLElement) => void) | null>(null);
 
   useEffect(() => {
-    if (ref.current && RV?.wireMetricTips) RV.wireMetricTips(ref.current);
+    let cancelled = false;
+    setHtml(null);
+    setLoadError(null);
+    setWireTips(null);
+
+    (async () => {
+      try {
+        const mod = await import("../lib/report-view.js");
+        if (cancelled) return;
+        const render = mod.renderUnifiedReport || mod.JobLensReportView?.renderUnifiedReport;
+        const wire = mod.wireMetricTips || mod.JobLensReportView?.wireMetricTips;
+        if (!render) {
+          setLoadError("Report renderer failed to load — hard refresh (Cmd+Shift+R).");
+          return;
+        }
+        const out = render(report);
+        if (!out || !String(out).trim()) {
+          setLoadError("Analysis finished but the report was empty. Try again or check the API.");
+          return;
+        }
+        setHtml(out);
+        if (wire) setWireTips(() => wire);
+      } catch (e) {
+        if (!cancelled) setLoadError(String((e as Error).message || e));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [report]);
 
-  if (!report) return null;
+  useEffect(() => {
+    if (ref.current && html && wireTips) {
+      wireTips(ref.current);
+    }
+  }, [html, wireTips]);
 
-  if (!RV?.renderUnifiedReport) {
+  if (loadError) {
     return (
-      <p className="text-sm" style={{ color: "var(--jn-text-muted)" }}>
-        Report renderer failed to load — hard refresh (Cmd+Shift+R).
-      </p>
+      <div className="tool-panel">
+        <div className="tool-panel-bd">
+          <p className="text-sm" style={{ color: "#8a1f1c" }}>{loadError}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!html) {
+    return (
+      <div className="tool-panel">
+        <div className="tool-panel-bd">
+          <p className="text-sm" style={{ color: "var(--jn-text-muted)" }}>Rendering results…</p>
+        </div>
+      </div>
     );
   }
 
@@ -35,7 +71,7 @@ export function ReportResults({ report }: { report: Record<string, unknown> }) {
     <section
       className="jl-report-shell"
       ref={ref}
-      dangerouslySetInnerHTML={{ __html: RV.renderUnifiedReport(report) }}
+      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 }

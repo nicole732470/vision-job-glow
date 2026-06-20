@@ -245,6 +245,7 @@ function JobLensApp() {
   // resume
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeUploaded, setResumeUploaded] = useState(false);
+  const [resumeSummary, setResumeSummary] = useState("");
   const [resumeBusy, setResumeBusy] = useState(false);
 
   const isLoggedIn = Boolean(token);
@@ -256,10 +257,12 @@ function JobLensApp() {
     setEmail(e);
   }, []);
 
-  // fetch profile on login
+  // fetch profile + resume on login
   useEffect(() => {
     if (!token) {
       setProfile(null);
+      setResumeUploaded(false);
+      setResumeSummary("");
       return;
     }
     (async () => {
@@ -268,6 +271,17 @@ function JobLensApp() {
         setProfile(normalizeProfile(p));
       } catch {
         setProfile({ ...EMPTY_PROFILE });
+      }
+      try {
+        const r = (await apiJson("/me/resume", { headers: headers(token) })) as {
+          uploaded?: boolean;
+          summary?: string;
+        };
+        setResumeUploaded(Boolean(r.uploaded));
+        setResumeSummary(r.summary || "");
+      } catch {
+        setResumeUploaded(false);
+        setResumeSummary("");
       }
     })();
   }, [token]);
@@ -413,6 +427,15 @@ function JobLensApp() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
       setResumeUploaded(true);
+      try {
+        const r = (await apiJson("/me/resume", { headers: headers(token!) })) as {
+          uploaded?: boolean;
+          summary?: string;
+        };
+        setResumeSummary(r.summary || "");
+      } catch {
+        /* ignore */
+      }
       ok("Resume saved.");
     } catch (e) {
       err(friendlyFetchError(e));
@@ -492,13 +515,6 @@ function JobLensApp() {
             status={status}
             report={report}
             isLoggedIn={isLoggedIn}
-            resumeFile={resumeFile}
-            setResumeFile={(f) => {
-              setResumeFile(f);
-              if (f) uploadResume(f);
-            }}
-            resumeUploaded={resumeUploaded}
-            resumeBusy={resumeBusy}
           />
         )}
 
@@ -510,6 +526,7 @@ function JobLensApp() {
             primaryLabel="Save & continue"
             isOnboarding
             resumeUploaded={resumeUploaded}
+            resumeSummary={resumeSummary}
             resumeBusy={resumeBusy}
             onResumePick={(f) => {
               setResumeFile(f);
@@ -530,6 +547,13 @@ function JobLensApp() {
             heading="Your profile"
             sub="Same fields as your saved candidate profile. Changes apply to the next analysis."
             primaryLabel="Save changes"
+            resumeUploaded={resumeUploaded}
+            resumeSummary={resumeSummary}
+            resumeBusy={resumeBusy}
+            onResumePick={(f) => {
+              setResumeFile(f);
+              if (f) uploadResume(f);
+            }}
             onSave={async (p) => {
               await saveProfile(p);
               setView("analyze");
@@ -704,17 +728,13 @@ function AnalyzeView(props: {
   status: { msg: string; err: boolean } | null;
   report: Report | null;
   isLoggedIn: boolean;
-  resumeFile: File | null;
-  setResumeFile: (f: File | null) => void;
-  resumeUploaded: boolean;
-  resumeBusy: boolean;
 }) {
   const {
     jobUrl, setJobUrl, showManual,
     manualCompany, setManualCompany, manualTitle, setManualTitle,
     manualLocation, setManualLocation, manualJd, setManualJd,
     analyzeSteps, loading, onUrlAnalyze, onManualAnalyze, status, report,
-    isLoggedIn, resumeFile, setResumeFile, resumeUploaded, resumeBusy,
+    isLoggedIn,
   } = props;
 
   const pipeline = [
@@ -849,21 +869,6 @@ function AnalyzeView(props: {
         </div>
       )}
 
-      {isLoggedIn && (
-        <div className="tool-panel">
-          <div className="tool-panel-hd">Resume</div>
-          <div className="tool-panel-bd flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs" style={{ color: "var(--jn-text-muted)" }}>
-              {resumeUploaded ? "Saved — used when scoring the posting against you." : "PDF improves the match section of your verdict."}
-            </p>
-            <label className="nbtn cursor-pointer">
-              {resumeBusy ? "Uploading…" : resumeFile ? "Replace" : "Upload PDF"}
-              <input type="file" accept="application/pdf" hidden onChange={(e) => setResumeFile(e.target.files?.[0] || null)} />
-            </label>
-          </div>
-        </div>
-      )}
-
       {report && <ReportResults report={report as unknown as Record<string, unknown>} />}
     </div>
   );
@@ -973,6 +978,7 @@ function ProfileEditor({
   skipLabel = "Skip for now",
   isOnboarding = false,
   resumeUploaded = false,
+  resumeSummary = "",
   resumeBusy = false,
   onResumePick,
 }: {
@@ -985,6 +991,7 @@ function ProfileEditor({
   skipLabel?: string;
   isOnboarding?: boolean;
   resumeUploaded?: boolean;
+  resumeSummary?: string;
   resumeBusy?: boolean;
   onResumePick?: (f: File) => void;
 }) {
@@ -1069,24 +1076,31 @@ function ProfileEditor({
         <p className="mt-1 text-sm" style={{ color: "var(--jn-text-muted)" }}>{sub}</p>
       </header>
 
-      {isOnboarding && onResumePick && (
+      {onResumePick && (
         <Section title="Resume (PDF)" hint="Upload once — we compare each job's requirements to your experience.">
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="nbtn cursor-pointer">
-              {resumeBusy ? "Uploading…" : resumeUploaded ? "Replace PDF" : "Upload resume"}
-              <input
-                type="file"
-                accept="application/pdf"
-                hidden
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onResumePick(f);
-                }}
-              />
-            </label>
-            <span className="text-xs" style={{ color: "var(--jn-text-faint)" }}>
-              {resumeUploaded ? "Saved." : "Optional now; improves match scoring."}
-            </span>
+          <div className="flex flex-col gap-2">
+            {resumeSummary && (
+              <p className="text-sm leading-relaxed" style={{ color: "var(--jn-text-secondary)" }}>
+                {resumeSummary}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="nbtn cursor-pointer">
+                {resumeBusy ? "Uploading…" : resumeUploaded ? "Replace PDF" : "Upload resume"}
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onResumePick(f);
+                  }}
+                />
+              </label>
+              <span className="text-xs" style={{ color: "var(--jn-text-faint)" }}>
+                {resumeUploaded ? "Saved — used when scoring jobs." : "Optional; improves resume match."}
+              </span>
+            </div>
           </div>
         </Section>
       )}
