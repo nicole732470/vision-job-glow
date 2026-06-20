@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { JOB_TOKENS_CSS, STEP_LABELS } from "../lib/job-tokens";
+import { ReportResults } from "../components/ReportResults";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -209,15 +210,6 @@ interface Report {
 
 type View = "analyze" | "onboarding" | "profile";
 
-function verdictStyle(d?: string): string {
-  const x = (d || "").toLowerCase();
-  if (x === "apply") return "verdict-apply";
-  if (x.includes("near")) return "verdict-near";
-  if (x === "consider") return "verdict-consider";
-  if (x === "skip") return "verdict-skip";
-  return "verdict-neutral";
-}
-
 // ---------- Helpers ----------
 const linesToArr = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
 const arrToLines = (a?: string[]) => (a ?? []).join("\n");
@@ -243,9 +235,8 @@ function JobLensApp() {
   const [showManual, setShowManual] = useState(false);
   const [manualCompany, setManualCompany] = useState("");
   const [manualTitle, setManualTitle] = useState("");
+  const [manualLocation, setManualLocation] = useState("");
   const [manualJd, setManualJd] = useState("");
-  const [company, setCompany] = useState("");
-  const [title, setTitle] = useState("");
   const [report, setReport] = useState<Report | null>(null);
   const [analyzeSteps, setAnalyzeSteps] = useState<Array<{ step: string; duration_ms?: number }>>([]);
   const [loading, setLoading] = useState(false);
@@ -326,8 +317,6 @@ function JobLensApp() {
       const _jd = data.jd_text || "";
       const _company = data.company || "";
       const _title = data.title || "";
-      setCompany(_company);
-      setTitle(_title);
       if (_jd.trim().length < 80) {
         setShowManual(true);
         if (_company) setManualCompany(_company);
@@ -354,9 +343,7 @@ function JobLensApp() {
     setAnalyzeSteps([]);
     ok("");
     try {
-      setCompany(manualCompany);
-      setTitle(manualTitle);
-      await runAnalyzeCore(manualJd, manualCompany, manualTitle);
+      await runAnalyzeCore(manualJd, manualCompany, manualTitle, manualLocation || null);
     } catch (e) {
       err(friendlyFetchError(e));
     } finally {
@@ -364,13 +351,19 @@ function JobLensApp() {
     }
   }
 
-  async function runAnalyzeCore(_jd: string, _company: string, _title: string) {
+  async function runAnalyzeCore(
+    _jd: string,
+    _company: string,
+    _title: string,
+    _jobLocation: string | null = null,
+  ) {
     ok("Starting analysis…");
     const body = {
       jd_text: _jd,
       company: _company || null,
       title: _title || null,
       job_url: jobUrl || null,
+      job_location: _jobLocation,
     };
     const started = (await apiJson("/analyze/async", {
       method: "POST",
@@ -488,6 +481,8 @@ function JobLensApp() {
             setManualCompany={setManualCompany}
             manualTitle={manualTitle}
             setManualTitle={setManualTitle}
+            manualLocation={manualLocation}
+            setManualLocation={setManualLocation}
             manualJd={manualJd}
             setManualJd={setManualJd}
             analyzeSteps={analyzeSteps}
@@ -496,8 +491,6 @@ function JobLensApp() {
             onManualAnalyze={runManualAnalyze}
             status={status}
             report={report}
-            company={company}
-            title={title}
             isLoggedIn={isLoggedIn}
             resumeFile={resumeFile}
             setResumeFile={(f) => {
@@ -644,16 +637,6 @@ function JobLensApp() {
         .tool-hero .tool-panel-bd { padding: 20px; }
         .tool-hero .ninput { font-size: 15px; padding: 14px 14px; }
         .tool-hero .nbtn-primary { padding: 14px 22px; }
-        .verdict-apply { background: var(--jn-verdict-apply-bg); color: var(--jn-verdict-apply-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-apply-ring); }
-        .verdict-near { background: var(--jn-verdict-near-bg); color: var(--jn-verdict-near-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-near-ring); }
-        .verdict-consider { background: var(--jn-verdict-consider-bg); color: var(--jn-verdict-consider-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-consider-ring); }
-        .verdict-skip { background: var(--jn-verdict-skip-bg); color: var(--jn-verdict-skip-fg); box-shadow: inset 0 0 0 1px var(--jn-verdict-skip-ring); }
-        .verdict-neutral { background: var(--jn-bg-subtle); color: var(--jn-text); }
-        .verdict-apply, .verdict-near, .verdict-consider, .verdict-skip, .verdict-neutral {
-          display: inline-flex; align-items: center; border-radius: 999px; padding: 0.3rem 0.95rem;
-          font-family: var(--jn-font-mono); font-size: 0.78rem; font-weight: 600;
-          text-transform: uppercase; letter-spacing: 0.06em;
-        }
       `}</style>
     </div>
   );
@@ -710,6 +693,8 @@ function AnalyzeView(props: {
   setManualCompany: (s: string) => void;
   manualTitle: string;
   setManualTitle: (s: string) => void;
+  manualLocation: string;
+  setManualLocation: (s: string) => void;
   manualJd: string;
   setManualJd: (s: string) => void;
   analyzeSteps: Array<{ step: string; duration_ms?: number }>;
@@ -718,8 +703,6 @@ function AnalyzeView(props: {
   onManualAnalyze: () => void;
   status: { msg: string; err: boolean } | null;
   report: Report | null;
-  company: string;
-  title: string;
   isLoggedIn: boolean;
   resumeFile: File | null;
   setResumeFile: (f: File | null) => void;
@@ -728,8 +711,9 @@ function AnalyzeView(props: {
 }) {
   const {
     jobUrl, setJobUrl, showManual,
-    manualCompany, setManualCompany, manualTitle, setManualTitle, manualJd, setManualJd,
-    analyzeSteps, loading, onUrlAnalyze, onManualAnalyze, status, report, company, title,
+    manualCompany, setManualCompany, manualTitle, setManualTitle,
+    manualLocation, setManualLocation, manualJd, setManualJd,
+    analyzeSteps, loading, onUrlAnalyze, onManualAnalyze, status, report,
     isLoggedIn, resumeFile, setResumeFile, resumeUploaded, resumeBusy,
   } = props;
 
@@ -844,6 +828,12 @@ function AnalyzeView(props: {
             </p>
             <input className="ninput" placeholder="Company" value={manualCompany} onChange={(e) => setManualCompany(e.target.value)} />
             <input className="ninput" placeholder="Job title" value={manualTitle} onChange={(e) => setManualTitle(e.target.value)} />
+            <input
+              className="ninput"
+              placeholder="Location (e.g. Chicago, IL — under title on LinkedIn)"
+              value={manualLocation}
+              onChange={(e) => setManualLocation(e.target.value)}
+            />
             <textarea
               value={manualJd}
               onChange={(e) => setManualJd(e.target.value)}
@@ -875,96 +865,13 @@ function AnalyzeView(props: {
       )}
 
       {report && (
-        <div className="space-y-3">
-          <div className="tool-panel">
-            <div className="tool-panel-hd">Result</div>
-            <div className="tool-panel-bd">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className={verdictStyle(report.recommendation?.decision)}>
-                  {report.recommendation?.decision || "—"}
-                </span>
-                {(company || title) && (
-                  <span className="text-sm" style={{ color: "var(--jn-text-muted)" }}>
-                    {company || "—"} · {title || "—"}
-                  </span>
-                )}
-                {typeof report.recommendation?.fit_ratio === "number" && (
-                  <span className="text-sm" style={{ color: "var(--jn-text-muted)" }}>
-                    Match{" "}
-                    <strong style={{ color: "var(--jn-text)" }}>
-                      {Math.round(
-                        report.recommendation.fit_ratio <= 1
-                          ? report.recommendation.fit_ratio * 100
-                          : report.recommendation.fit_ratio
-                      )}
-                      %
-                    </strong>
-                  </span>
-                )}
-              </div>
-              {report.recommendation?.reasoning && (
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "var(--jn-text-secondary)" }}>
-                  {report.recommendation.reasoning}
-                </p>
-              )}
-            </div>
+        <div className="tool-panel">
+          <div className="tool-panel-hd">Result</div>
+          <div className="tool-panel-bd">
+            <ReportResults report={report as unknown as Record<string, unknown>} />
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {report.sponsorship && (
-              <ResultCard title="Sponsorship">
-                {report.sponsorship.matched ? (
-                  <p>
-                    <strong>{report.sponsorship.company?.name || company || "Match"}</strong>
-                    {" · "}
-                    {report.sponsorship.total_lca_count ?? 0} LCAs
-                  </p>
-                ) : (
-                  <p style={{ color: "var(--jn-text-muted)" }}>{report.sponsorship.reason || "No match."}</p>
-                )}
-              </ResultCard>
-            )}
-            {report.resume_fit?.available && (
-              <ResultCard title="Your resume">
-                <p>
-                  <strong>{report.resume_fit.strong_matches?.length ?? 0}</strong> strong ·{" "}
-                  <strong>{report.resume_fit.partial_matches?.length ?? 0}</strong> partial ·{" "}
-                  <strong>{report.resume_fit.missing?.length ?? 0}</strong> gaps
-                </p>
-              </ResultCard>
-            )}
-            {report.company && (
-              <ResultCard title="Company">
-                {report.company.company_label && (
-                  <p className="mb-1"><strong>{report.company.company_label}</strong></p>
-                )}
-                {report.company.summary && (
-                  <p style={{ color: "var(--jn-text-muted)" }}>{report.company.summary}</p>
-                )}
-              </ResultCard>
-            )}
-          </div>
-
-          <details className="text-xs" style={{ color: "var(--jn-text-faint)" }}>
-            <summary className="cursor-pointer">Raw JSON</summary>
-            <pre
-              className="mt-2 max-h-64 overflow-auto rounded p-2"
-              style={{ background: "var(--jn-bg-subtle)", border: "1px solid var(--jn-border)", fontFamily: "var(--jn-font-mono)" }}
-            >
-              {JSON.stringify(report, null, 2)}
-            </pre>
-          </details>
         </div>
       )}
-    </div>
-  );
-}
-
-function ResultCard({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="card p-4">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--jn-text-faint)", fontFamily: "var(--jn-font-mono)" }}>{title}</h3>
-      <div className="text-[14px]" style={{ color: "var(--jn-text)" }}>{children}</div>
     </div>
   );
 }
