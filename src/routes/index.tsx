@@ -266,11 +266,9 @@ function JobLensApp() {
 
     if (!t) {
       setAuthModal(panel === "register" ? "register" : "login");
-      ok("Sign in or register — your Chrome extension will sync automatically.");
       return;
     }
 
-    ok("Synced with extension. Return to LinkedIn and click Retry on the job.");
     if (panel === "profile") setView("profile");
     else if (panel === "register") setView("profile");
   }, []);
@@ -499,7 +497,6 @@ function JobLensApp() {
       setProfile({ ...EMPTY_PROFILE });
       setView("onboarding");
     }
-    if (fromExtension) ok("Signed in — extension synced. Return to LinkedIn and click Retry.");
   }
 
   async function saveProfile(p: Profile) {
