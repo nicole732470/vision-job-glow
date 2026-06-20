@@ -445,7 +445,7 @@ function JobLensApp() {
     }
     // login: check profile
     try {
-      const prof = await apiJson("/me/profile", { headers: headers(data.token) });
+      const prof = await apiJson("/me/profile", { headers: headers(data.token as string) });
       const merged = normalizeProfile(prof);
       setProfile(merged);
       setView(isProfileFilled(merged) ? "analyze" : "onboarding");
