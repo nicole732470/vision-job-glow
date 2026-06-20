@@ -63,14 +63,17 @@ Main UI: `src/routes/index.tsx`
 
 ## LinkedIn job URLs
 
-**Do not** expect `linkedin.com/jobs/...` to parse server-side — LinkedIn blocks bots.
+Always **try** `POST /jobs/parse-url` first when the user pasted a URL and JD text is short.
 
-Web app flow:
+If parse returns `ok: false` (LinkedIn often blocks server fetch) or the request fails:
 
-1. User pastes LinkedIn URL → show JD paste box with clear message (no API fetch).
-2. User pastes JD text → `POST /analyze` works.
+1. Open the JD paste box (`setShowPaste(true)`)
+2. Show the server `reason` or a short fallback message
+3. User pastes JD → `POST /analyze` continues
 
-**Chrome extension** reads the page on LinkedIn directly — that is the right surface for LinkedIn jobs.
+Do **not** skip parse-url upfront just because the URL is LinkedIn.
+
+**Chrome extension** still reads LinkedIn pages directly — best surface for LinkedIn jobs.
 
 ## HTTPS web → HTTP API
 

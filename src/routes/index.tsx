@@ -50,10 +50,6 @@ function friendlyFetchError(e: unknown): string {
   return msg;
 }
 
-function isLinkedInJobUrl(url: string) {
-  return /linkedin\.com\/jobs/i.test(url);
-}
-
 async function apiJson(path: string, init: RequestInit) {
   let res: Response;
   try {
@@ -265,19 +261,19 @@ function JobLensApp() {
       let _title = title;
 
       if (jobUrl.trim() && _jd.trim().length < 80) {
-        if (isLinkedInJobUrl(jobUrl)) {
-          setShowPaste(true);
-          throw new Error(
-            "LinkedIn blocks server fetch. Open that job on LinkedIn, copy the full description, paste it below, then Analyze again — or use the JobLens Chrome extension on the posting."
-          );
-        }
         ok("Fetching job page…");
         const data = await apiJson("/jobs/parse-url", {
           method: "POST",
           headers: headers(),
           body: JSON.stringify({ url: jobUrl.trim() }),
         });
-        if (!data.ok) throw new Error(data.reason || "Could not parse URL");
+        if (!data.ok) {
+          setShowPaste(true);
+          throw new Error(
+            data.reason ||
+              "Could not read this job page — paste the full description below, or use the JobLens Chrome extension on LinkedIn."
+          );
+        }
         _jd = data.jd_text || "";
         _company = data.company || "";
         _title = data.title || "";
@@ -302,6 +298,7 @@ function JobLensApp() {
       setReport(r);
       ok(`Done in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
     } catch (e) {
+      if (jobUrl.trim() && jdText.trim().length < 80) setShowPaste(true);
       err(friendlyFetchError(e));
     } finally {
       setLoading(false);
