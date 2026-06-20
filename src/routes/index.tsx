@@ -11,13 +11,30 @@ export const Route = createFileRoute("/")({
         content:
           "Paste a job link. JobLens checks H-1B history, role fit, and resume match — then explains why it fits or doesn't.",
       },
-      { property: "og:title", content: "JobLens" },
+      { property: "og:title", content: "JobLens — Check if a job fits you" },
       {
         property: "og:description",
         content: "Know how a job matches you — sponsorship, role, resume — before you apply.",
       },
+      { property: "og:url", content: "https://job-lens-main.lovable.app/" },
     ],
-    links: [],
+    links: [{ rel: "canonical", href: "https://job-lens-main.lovable.app/" }],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "SoftwareApplication",
+          name: "JobLens",
+          applicationCategory: "BusinessApplication",
+          operatingSystem: "Web",
+          description:
+            "JobLens checks H-1B sponsorship history, role fit, and resume match for any job link so you know before you apply.",
+          url: "https://job-lens-main.lovable.app/",
+          offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+        }),
+      },
+    ],
   }),
   component: JobLensApp,
 });
