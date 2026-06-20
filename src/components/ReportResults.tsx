@@ -16,21 +16,16 @@ export function ReportResults({ report }: { report: Record<string, unknown> }) {
 
     (async () => {
       try {
-        const mod = await import("../lib/report-view.js");
+        await import("../lib/report-view-core.js");
         if (cancelled) return;
-        const render = mod.renderUnifiedReport || mod.JobLensReportView?.renderUnifiedReport;
-        const wire = mod.wireMetricTips || mod.JobLensReportView?.wireMetricTips;
-        if (!render) {
-          setLoadError("Report renderer failed to load — hard refresh (Cmd+Shift+R).");
-          return;
-        }
-        const out = render(report);
+        const { renderUnifiedReport, wireMetricTips: wireFn } = await import("../lib/report-view.js");
+        const out = renderUnifiedReport(report);
         if (!out || !String(out).trim()) {
-          setLoadError("Analysis finished but the report was empty. Try again or check the API.");
+          setLoadError("Analysis finished but the report was empty. Try again.");
           return;
         }
         setHtml(out);
-        if (wire) setWireTips(() => wire);
+        setWireTips(() => wireFn);
       } catch (e) {
         if (!cancelled) setLoadError(String((e as Error).message || e));
       }
