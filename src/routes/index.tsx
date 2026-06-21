@@ -869,7 +869,7 @@ function AnalyzeView(props: {
         >
           Worth applying?
           <br />
-          <span style={{ color: "var(--jn-brand)" }}>Visa check + role fit.</span>
+          <span style={{ color: "var(--jn-brand)" }}>Sponsorship check + role fit.</span>
         </h1>
         <p
           style={{
