@@ -870,10 +870,6 @@ function AnalyzeView(props: {
               )}
               {loading && (
                 <div className="step-list">
-                  <div className="step-line" style={{ marginBottom: 6 }}>
-                    <img src="/logo.svg" alt="" width={16} height={16} style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: "var(--jn-text-secondary)" }}>JobLens</span>
-                  </div>
                   {pipeline.map((key) => {
                     const done = doneSteps.has(key);
                     const live = analyzeSteps.find((s) => s.step === key);
