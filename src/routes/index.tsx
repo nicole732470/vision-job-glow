@@ -139,6 +139,14 @@ interface Profile {
   };
   dealbreakers: string[];
   preferences: string[];
+  company_preferences: {
+    industries: string[];
+    stages: string[];
+    sizes: string[];
+    funding_signals: string[];
+    network_signals: string[];
+    avoid: string[];
+  };
   technical_penalties: string[];
   alumni_schools: string[];
   constraints: { needs_sponsorship: boolean };
@@ -149,6 +157,9 @@ const EMPTY_PROFILE: Profile = {
   locations: { summary: "", tier_1: [], tier_2: [], tier_3: [] },
   dealbreakers: [],
   preferences: [],
+  company_preferences: {
+    industries: [], stages: [], sizes: [], funding_signals: [], network_signals: [], avoid: [],
+  },
   technical_penalties: [],
   alumni_schools: [],
   constraints: { needs_sponsorship: true },
@@ -158,6 +169,7 @@ function normalizeProfile(raw: Record<string, unknown> | null | undefined): Prof
   const p = raw || {};
   const loc = (p.locations as Profile["locations"]) || {};
   const constraints = (p.constraints as Profile["constraints"]) || {};
+  const companyPreferences = (p.company_preferences as Profile["company_preferences"]) || {};
   let avoid = p.avoid_tracks;
   if (Array.isArray(avoid) && avoid.length && typeof avoid[0] === "string") {
     avoid = (avoid as string[]).map((label, i) => ({
@@ -171,6 +183,7 @@ function normalizeProfile(raw: Record<string, unknown> | null | undefined): Prof
     ...p,
     avoid_tracks: (avoid as AvoidTrack[]) || [],
     locations: { ...EMPTY_PROFILE.locations, ...loc },
+    company_preferences: { ...EMPTY_PROFILE.company_preferences, ...companyPreferences },
     preferences: Array.isArray(p.preferences)
       ? (p.preferences as string[])
       : p.preferences
@@ -1047,6 +1060,12 @@ function ProfileEditor({
   const [tier3, setTier3] = useState(arrToLines(initial.locations?.tier_3));
   const [dealbreakers, setDealbreakers] = useState(arrToLines(initial.dealbreakers));
   const [prefs, setPrefs] = useState(arrToLines(initial.preferences));
+  const [companyIndustries, setCompanyIndustries] = useState(arrToLines(initial.company_preferences?.industries));
+  const [companyStages, setCompanyStages] = useState(arrToLines(initial.company_preferences?.stages));
+  const [companySizes, setCompanySizes] = useState(arrToLines(initial.company_preferences?.sizes));
+  const [companyFunding, setCompanyFunding] = useState(arrToLines(initial.company_preferences?.funding_signals));
+  const [companyNetwork, setCompanyNetwork] = useState(arrToLines(initial.company_preferences?.network_signals));
+  const [companyAvoid, setCompanyAvoid] = useState(arrToLines(initial.company_preferences?.avoid));
   const [penalties, setPenalties] = useState(arrToLines(initial.technical_penalties));
   const [schools, setSchools] = useState(arrToLines(initial.alumni_schools));
   const [needsSponsor, setNeedsSponsor] = useState(
@@ -1079,7 +1098,7 @@ function ProfileEditor({
             ...t,
             label: t.label.trim(),
             id: t.id || t.label.trim().toLowerCase().replace(/\s+/g, "_"),
-            priority: Math.max(1, Math.min(5, Number(t.priority) || 3)),
+            priority: Math.max(1, Math.min(3, Number(t.priority) || 3)),
             example_titles: t.example_titles || [],
           })),
         avoid_tracks: linesToArr(avoid).map((label, i) => ({
@@ -1097,6 +1116,14 @@ function ProfileEditor({
         },
         dealbreakers: linesToArr(dealbreakers),
         preferences: linesToArr(prefs),
+        company_preferences: {
+          industries: linesToArr(companyIndustries),
+          stages: linesToArr(companyStages),
+          sizes: linesToArr(companySizes),
+          funding_signals: linesToArr(companyFunding),
+          network_signals: linesToArr(companyNetwork),
+          avoid: linesToArr(companyAvoid),
+        },
         technical_penalties: linesToArr(penalties),
         alumni_schools: linesToArr(schools),
         constraints: { needs_sponsorship: needsSponsor },
@@ -1145,7 +1172,7 @@ function ProfileEditor({
         </Section>
       )}
 
-      <Section title="Target roles (tracks)" hint="Role categories you want. Priority 1 = most wanted. Example titles help us match LinkedIn wording.">
+      <Section title="Target roles (tracks)" hint="Role categories you want. Use P1-P3; unmatched roles become P4. Example titles teach AI your categories.">
         <div className="space-y-3">
           {tracks.length === 0 && (
             <p className="text-sm text-[#9b9a97]">No tracks yet. Add your first below.</p>
@@ -1161,11 +1188,11 @@ function ProfileEditor({
                     onChange={(e) => updateTrack(i, { label: e.target.value })}
                   />
                 </FieldInline>
-                <FieldInline label="Priority (1–5)">
+                <FieldInline label="Priority (1–3)">
                   <input
                     type="number"
                     min={1}
-                    max={5}
+                    max={3}
                     className="ninput"
                     value={t.priority}
                     onChange={(e) => updateTrack(i, { priority: Number(e.target.value) })}
@@ -1219,6 +1246,17 @@ function ProfileEditor({
 
       <Section title="Preferences" hint="Nice-to-haves — nudge the score, never a veto.">
         <textarea rows={3} className="ninput font-mono text-[13px]" value={prefs} onChange={(e) => setPrefs(e.target.value)} />
+      </Section>
+
+      <Section title="Company preferences" hint="One per line. Company fit uses researched company evidence, never JD wording.">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FieldInline label="Industries"><textarea rows={3} className="ninput" value={companyIndustries} onChange={(e) => setCompanyIndustries(e.target.value)} /></FieldInline>
+          <FieldInline label="Stages"><textarea rows={3} className="ninput" value={companyStages} onChange={(e) => setCompanyStages(e.target.value)} /></FieldInline>
+          <FieldInline label="Sizes"><textarea rows={3} className="ninput" value={companySizes} onChange={(e) => setCompanySizes(e.target.value)} /></FieldInline>
+          <FieldInline label="Funding signals"><textarea rows={3} className="ninput" value={companyFunding} onChange={(e) => setCompanyFunding(e.target.value)} /></FieldInline>
+          <FieldInline label="Network signals"><textarea rows={3} className="ninput" value={companyNetwork} onChange={(e) => setCompanyNetwork(e.target.value)} /></FieldInline>
+          <FieldInline label="Avoid"><textarea rows={3} className="ninput" value={companyAvoid} onChange={(e) => setCompanyAvoid(e.target.value)} /></FieldInline>
+        </div>
       </Section>
 
       <Section title="Stacks you won't do" hint="JD mentions these → role priority drops (e.g. legacy PHP, hardware-only).">
