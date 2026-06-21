@@ -37,8 +37,8 @@ function DecisionCard({ name, record }: { name: string; record: Record<string, a
   );
 }
 
-export function DebugDrawer({ report }: { report: Record<string, any> }) {
-  const [open, setOpen] = useState(false);
+export function DebugDrawer({ report, defaultOpen = false }: { report: Record<string, any>; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   const data = useMemo(() => {
     const debug = report?.recommendation?.debug_decisions || {};
     const decisions = { ...(debug.decisions || {}) };

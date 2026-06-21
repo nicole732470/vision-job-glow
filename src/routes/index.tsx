@@ -216,7 +216,7 @@ interface Report {
   company?: { company_label?: string; summary?: string };
 }
 
-type View = "analyze" | "onboarding" | "profile";
+type View = "analyze" | "onboarding" | "profile" | "debug";
 
 // ---------- Helpers ----------
 const linesToArr = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
@@ -246,6 +246,8 @@ function JobLensApp() {
   const [manualLocation, setManualLocation] = useState("");
   const [manualJd, setManualJd] = useState("");
   const [report, setReport] = useState<Report | null>(null);
+  const [debugReport, setDebugReport] = useState<Record<string, any> | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
   const [analyzeSteps, setAnalyzeSteps] = useState<Array<{ step: string; duration_ms?: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ msg: string; err: boolean } | null>(null);
@@ -327,6 +329,29 @@ function JobLensApp() {
     window.dispatchEvent(new CustomEvent("joblens-auth-changed"));
     setView("analyze");
     setReport(null);
+    setDebugReport(null);
+  }
+
+  async function openDebug() {
+    setView("debug");
+    if (report) {
+      setDebugReport(report as unknown as Record<string, any>);
+      return;
+    }
+    if (!token) return;
+    setDebugLoading(true);
+    try {
+      const list = await apiJson("/observability/traces?limit=10", { headers: headers(token) }) as any;
+      const runId = list?.traces?.[0]?.run_id;
+      if (runId) {
+        const trace = await apiJson(`/observability/traces/${runId}`, { headers: headers(token) });
+        setDebugReport(trace as Record<string, any>);
+      }
+    } catch (e) {
+      err(friendlyFetchError(e));
+    } finally {
+      setDebugLoading(false);
+    }
   }
   const ok = (msg = "") => setStatus(msg ? { msg, err: false } : null);
   const err = (msg: string) => setStatus({ msg, err: true });
@@ -544,6 +569,7 @@ function JobLensApp() {
         onSignIn={() => setAuthModal("login")}
         onSignUp={() => setAuthModal("register")}
         onProfile={() => setView("profile")}
+        onDebug={email?.toLowerCase() === "example@test.com" ? openDebug : undefined}
         onLogo={() => setView("analyze")}
         onLogout={logout}
       />
@@ -617,6 +643,17 @@ function JobLensApp() {
             onSkip={() => setView("analyze")}
             skipLabel="Cancel"
           />
+        )}
+
+        {view === "debug" && email?.toLowerCase() === "example@test.com" && (
+          <div className="space-y-4">
+            <div className="pt-2"><h1 style={{ fontFamily: "var(--jn-font-mono)", fontSize: 28, margin: 0 }}>Decision Debugger</h1>
+              <p style={{ color: "var(--jn-text-muted)", marginTop: 6 }}>Latest structured decision trace for the test account.</p>
+            </div>
+            {debugLoading && <div className="tool-panel"><div className="tool-panel-bd">Loading latest trace…</div></div>}
+            {!debugLoading && debugReport && <DebugDrawer report={debugReport} defaultOpen />}
+            {!debugLoading && !debugReport && <div className="tool-panel"><div className="tool-panel-bd">No trace yet. Run an analysis first.</div></div>}
+          </div>
         )}
       </main>
 
@@ -725,15 +762,16 @@ function Header({
   onSignIn,
   onSignUp,
   onProfile,
+  onDebug,
   onLogo,
   onLogout,
 }: {
   email: string | null;
   isLoggedIn: boolean;
-  email: string | null;
   onSignIn: () => void;
   onSignUp: () => void;
   onProfile: () => void;
+  onDebug?: () => void;
   onLogo: () => void;
   onLogout: () => void;
 }) {
@@ -747,6 +785,7 @@ function Header({
         {isLoggedIn ? (
           <>
             <button className="nbtn nbtn-ghost" onClick={onProfile}>Profile</button>
+            {onDebug && <button className="nbtn nbtn-ghost" onClick={onDebug} style={{ color: "#287a43", fontWeight: 700 }}>Debug</button>}
             <span className="hidden sm:inline" style={{ color: "var(--jn-text-muted)" }}>·</span>
             <span className="hidden sm:inline" style={{ color: "var(--jn-text-muted)" }}>{email}</span>
             <button className="nbtn nbtn-ghost" onClick={onLogout}>Sign out</button>
