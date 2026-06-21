@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { JOB_TOKENS_CSS, STEP_LABELS } from "../lib/job-tokens";
 import { ReportResults } from "../components/ReportResults";
+import { DebugDrawer } from "../components/DebugDrawer";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -568,6 +569,7 @@ function JobLensApp() {
             status={status}
             report={report}
             isLoggedIn={isLoggedIn}
+            email={email}
           />
         )}
 
@@ -728,6 +730,7 @@ function Header({
 }: {
   email: string | null;
   isLoggedIn: boolean;
+  email: string | null;
   onSignIn: () => void;
   onSignUp: () => void;
   onProfile: () => void;
@@ -785,7 +788,7 @@ function AnalyzeView(props: {
     manualCompany, setManualCompany, manualTitle, setManualTitle,
     manualLocation, setManualLocation, manualJd, setManualJd,
     analyzeSteps, loading, onUrlAnalyze, onManualAnalyze, status, report,
-    isLoggedIn,
+    isLoggedIn, email,
   } = props;
 
   const pipeline = [
@@ -921,6 +924,9 @@ function AnalyzeView(props: {
       )}
 
       {report && <ReportResults report={report as unknown as Record<string, unknown>} />}
+      {report && email?.toLowerCase() === "example@test.com" && (
+        <DebugDrawer report={report as unknown as Record<string, any>} />
+      )}
     </div>
   );
 }
