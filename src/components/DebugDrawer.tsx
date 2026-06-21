@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import "../styles/debug-drawer.css";
 
 const LABELS: Record<string, string> = {
   role: "Role",

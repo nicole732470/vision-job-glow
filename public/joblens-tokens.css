@@ -1,6 +1,6 @@
 /**
  * JobLens design tokens — warm paper, terracotta + sage (Lovable source of truth).
- * Sync: joblens/scripts/sync-design-tokens.sh
+ * Sync: ./scripts/sync-design-tokens.sh
  */
 :root {
   --jn-bg: #fbf6ee;
