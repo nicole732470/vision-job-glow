@@ -137,7 +137,6 @@ interface Profile {
     remote_ok?: boolean;
     relocation_ok?: boolean;
   };
-  trajectory: string[];
   dealbreakers: string[];
   preferences: string[];
   technical_penalties: string[];
@@ -148,7 +147,6 @@ const EMPTY_PROFILE: Profile = {
   tracks: [],
   avoid_tracks: [],
   locations: { summary: "", tier_1: [], tier_2: [], tier_3: [] },
-  trajectory: [],
   dealbreakers: [],
   preferences: [],
   technical_penalties: [],
@@ -173,11 +171,6 @@ function normalizeProfile(raw: Record<string, unknown> | null | undefined): Prof
     ...p,
     avoid_tracks: (avoid as AvoidTrack[]) || [],
     locations: { ...EMPTY_PROFILE.locations, ...loc },
-    trajectory: Array.isArray(p.trajectory)
-      ? (p.trajectory as string[])
-      : p.trajectory
-        ? [String(p.trajectory)]
-        : [],
     preferences: Array.isArray(p.preferences)
       ? (p.preferences as string[])
       : p.preferences
@@ -1052,7 +1045,6 @@ function ProfileEditor({
   const [tier1, setTier1] = useState(arrToLines(initial.locations?.tier_1));
   const [tier2, setTier2] = useState(arrToLines(initial.locations?.tier_2));
   const [tier3, setTier3] = useState(arrToLines(initial.locations?.tier_3));
-  const [trajectory, setTrajectory] = useState(arrToLines(initial.trajectory));
   const [dealbreakers, setDealbreakers] = useState(arrToLines(initial.dealbreakers));
   const [prefs, setPrefs] = useState(arrToLines(initial.preferences));
   const [penalties, setPenalties] = useState(arrToLines(initial.technical_penalties));
@@ -1103,7 +1095,6 @@ function ProfileEditor({
           remote_ok: true,
           relocation_ok: true,
         },
-        trajectory: linesToArr(trajectory),
         dealbreakers: linesToArr(dealbreakers),
         preferences: linesToArr(prefs),
         technical_penalties: linesToArr(penalties),
@@ -1220,10 +1211,6 @@ function ProfileEditor({
             <textarea rows={4} className="ninput font-mono text-[13px]" value={tier3} onChange={(e) => setTier3(e.target.value)} />
           </FieldInline>
         </div>
-      </Section>
-
-      <Section title="Career trajectory" hint="One line per item — projects in progress, direction, etc.">
-        <textarea rows={3} className="ninput font-mono text-[13px]" value={trajectory} onChange={(e) => setTrajectory(e.target.value)} placeholder={"Building LLM agents\nMoving into applied AI roles"} />
       </Section>
 
       <Section title="Dealbreakers" hint="Hard nos — any match in the JD can veto the verdict (e.g. no sponsorship stated, unpaid internship).">
